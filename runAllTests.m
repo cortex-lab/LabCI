@@ -34,8 +34,12 @@ try
   % the sortByFixtures method to sort the suite.
   all_tests = [main_tests signals_tests alyx_tests];
   % If the repo under test is alyx, filter out irrelevent tests
-  if startsWith(repo, 'alyx', 'IgnoreCase', true)
+  if strcmp(repo, 'alyx')
     all_tests = all_tests(startsWith({all_tests.Name}, 'Alyx', 'IgnoreCase', true));
+  elseif strcmp(repo, 'alyx-matlab')
+    all_tests = alyx_tests;
+  elseif strcmp(repo, 'signals')
+    all_tests = signals_tests;
   end
   
   runner = TestRunner.withTextOutput;
