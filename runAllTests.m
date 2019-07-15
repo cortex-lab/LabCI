@@ -34,7 +34,7 @@ try
   % the sortByFixtures method to sort the suite.
   all_tests = [main_tests signals_tests alyx_tests];
   % If the repo under test is alyx, filter out irrelevent tests
-  if strcmp(repo, 'alyx')
+  if startsWith(repo, 'alyx', 'IgnoreCase', true)
     all_tests = all_tests(startsWith({all_tests.Name}, 'Alyx', 'IgnoreCase', true));
   end
   

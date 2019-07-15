@@ -120,7 +120,8 @@ queue.process(async (job, done) => {
            job.data['context'] = 'Tests stalled after ~2 min';
            runTests.kill();
       	  done(new Error('Job stalled')) }, 5*60000);
-     let args = ['-r', `runAllTests (""${job.data.sha}"",""${job.data.repo}"")`, '-wait', '-log', '-nosplash'];
+     let args = ['-r', `runAllTests (""${job.data.sha}"",""${job.data.repo}"")`,
+       '-wait', '-log', '-nosplash', '-logfile', 'matlab_tests.log'];
      runTests = cp.execFile('matlab', args, (error, stdout, stderr) => {
        clearTimeout(timer);
        if (error) { // Send error status
