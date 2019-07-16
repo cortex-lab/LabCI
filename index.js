@@ -1,31 +1,33 @@
 /**
  * @author Miles Wells <miles.wells@ucl.ac.uk>
  * @requires ./queue.js
+ * @requires ./coverage.js
  * @requires module:dotenv
  * @requires module:"@octokit/app"
  * @requires module:"@octokit/request"
  * @requires module:express
  * @requires module:github-webhook-handler
- * @requires module:smee-client
  */
 const fs = require('fs');
 const express = require('express')
 const srv = express();
 const cp = require('child_process');
 const queue = new (require('./queue.js'))()
+const Coverage = require('./coverage');
 const { App } = require('@octokit/app');
 const { request } = require("@octokit/request");
 
 const id = process.env.GITHUB_APP_IDENTIFIER;
 const secret = process.env.GITHUB_WEBHOOK_SECRET;
 
-// Create new tunnel to receive hooks
-const SmeeClient = require('smee-client')
-const smee = new SmeeClient({
-  source: process.env.WEBHOOK_PROXY_URL,
-  target: 'http://localhost:3000/github',
-  logger: console
-})
+// Configure ssh tunnel
+const cmd = 'ssh -tt -R 80:localhost:3000 serveo.net';
+const sh = String(cp.execFileSync('where', ['git'])).replace('cmd\\git.exe', 'bin\\sh.exe');
+const tunnel = () => {
+  let ssh = cp.spawn(sh, ['-c', cmd])
+  ssh.stdout.on('data', (data) => { console.log(`stdout: ${data}`); });
+  ssh.on('exit', () => { console.log('Reconnecting to Serveo'); tunnel(); });
+}
 
 // Create handler to verify posts signed with webhook secret.  Content type must be application/json
 var createHandler = require('github-webhook-handler');
@@ -75,22 +77,63 @@ srv.post('/github', async (req, res, next) => {
  */
 function loadTestRecords(id) {
   let obj = JSON.parse(fs.readFileSync('./db.json', 'utf8'));
-  if (!Array.isArray(obj)) obj = [obj];
-  let record;
-  for (record of obj) {
-    if (record['commit'] === id) {
-       return record;
-     }
-  };
+  if (!Array.isArray(obj)) obj = [obj]; // Ensure array
+  return obj.find(o => o.commit === id);
 };
 
-/*
 // Serve the test results for requested commit id
 srv.get('/github/:id', function (req, res) {
   console.log(req.params.id)
   const record = loadTestRecords(req.params.id);
   res.send(record['results']);
-}); */
+});
+
+// Serve the coverage results
+srv.get('/coverage/:repo/:branch', function (req, res) {
+  // Find head commit of branch
+  try {
+    const result = await request('GET /repos/:owner/:repo/git/refs/heads/:branch', {
+      owner: 'cortex-lab', // @todo Generalize repo owner
+      repo: req.params.repo,
+      branch: req.params.branch
+    });
+    if result.data.ref.endsWith('/' + req.params.branch) {
+      console.log('Request for ' + req.params.branch + ' coverage')
+      let id = result.data.object.sha;
+      var report = {'schemaVersion': 1, 'label': 'coverage'};
+      try { // Try to load coverage record
+        record = await loadTestRecords(id);
+        if (typeof record == 'undefined' || record['coverage'] == []) {throw 404}; // Test not found for commit
+        if (record['status'] === 'error') {throw 500}; // Test found for commit but errored
+        report['message'] = record['coverage'] + '%';
+        report['color'] = (record['coverage'] > 75 ? 'green' : 'red');
+      } catch (err) { // No coverage value
+        report['message'] = (err === 404 ? 'pending' : 'unknown');
+        report['color'] = 'orange';
+        // Check test isn't already on the pile
+        let onPile = false;
+        for (let job of queue.pile) { if job.id === id { onPile = true; break; } };
+        if !onPile { // Add test to queue
+          queue.add({
+            sha: id,
+            owner: 'cortex-lab', // @todo Generalize repo owner
+            repo: req.params.repo,
+            status: '',
+            context: ''});
+        }
+      } finally { // Send report
+        res.setHeader('Content-Type', 'application/json');
+        console.log(report)
+        res.end(JSON.stringify(report));}
+      }
+    } else { throw 404 }; // Specified repo or branch not found
+  catch (error) {
+    let msg = (error === 404 ? `${req.params.repo}/${req.params.branch} not found` : error);
+    console.error(msg)
+    res.statusCode = 401; // If not found, send 401 for security reasons
+    res.send(msg);
+  }
+});
 
 // Define how to process tests.  Here we checkout git and call MATLAB
 queue.process(async (job, done) => {
@@ -114,7 +157,7 @@ queue.process(async (job, done) => {
      console.log(stdout)
      // Go ahead with MATLAB tests
      var runTests;
-     const timer = setTimeout(function() { 
+     const timer = setTimeout(function() {
       	  console.log('Max test time exceeded')
       	  job.data['status'] = 'error';
            job.data['context'] = 'Tests stalled after ~2 min';
@@ -161,6 +204,31 @@ queue.on('finish', job => { // On job end post result to API
   });
 });
 
+/**
+ * Callback triggered when job completes.  Called when all tests run to end.
+ * @param {Object} job - Job object which has finished being processed.
+ * @todo Save full coverage object for future inspection
+ */
+queue.on('complete', job => { // On job end post result to API
+  console.log('Updating coverage for ' + job.id)
+  Coverage('./CoverageResults.xml', job.data.repo, job.data.id, obj => {
+    // Digest and save percentage coverage
+    let misses = 0, hits = 0;
+    for (let file of job.source_files) {
+      misses += file.coverage.filter(x => x == 0).length;
+      hits += file.coverage.filter(x => x > 0).length;
+    }
+    // Load data and save
+    let records = JSON.parse(fs.readFileSync('./db.json', 'utf8'));
+    if (!Array.isArray(records)) records = [records]; // Ensure array
+    for (let o of records) { if o.commit === job.data.id {o.coverage = hits / (hits + misses)}; break; } // Add percentage
+    // Save object
+    fs.writeFile('./db.json', JSON.stringify(records), function(err) {
+    if (err) { console.log(err); }
+    });
+  });
+});
+
 // Let fail silently: we report error via status
 queue.on('error', err => {return;});
 // Log handler errors
@@ -193,7 +261,7 @@ handler.on('push', async function (event) {
     // Add a new test job to the queue
     queue.add({
         sha: commit['id'],
-        owner: 'cortex-lab',
+        owner: 'cortex-lab', // @todo Generalize repo owner field
         repo: event.payload.repository.name,
         status: '',
         context: ''
@@ -210,7 +278,7 @@ var server = srv.listen(3000, function () {
    console.log("Handler listening at http://%s:%s", host, port)
 });
 // Start tunnel
-const events = smee.start()
+tunnel();
 
 // Log any unhandled errors
 process.on('unhandledRejection', (reason, p) => {

@@ -8,11 +8,11 @@ Run the install script to install all dependencies, then create your .env file c
 
 ### Prerequisites
 
-Requires MATLAB 2017a or later and Node.js.  The following Node.js modules are required:
+Requires MATLAB 2017a or later, Node.js and Git Bash.  The following Node.js modules are required:
 
 ```
 npm install --save express dotenv @octokit/app @octokit/request ...
-github-webhook-handler smee-client xml2js
+github-webhook-handler xml2js
 ```
 
 ### Installing
@@ -63,6 +63,8 @@ Create a shortcut in your startup folder ([Windows-logo] + [R] in Windows-10 and
 ## Built With
 
 * [Coveralls](coveralls.io) - Code coverage
+* [Serveo](serveo.net) - SSH tunneling service
+* [Shields.io](shields.io) - Display shields
 
 ## Contributing
 

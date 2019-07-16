@@ -2,8 +2,9 @@ function runAllTests(id, repo)
 %% Script for running all Rigbox tests
 % To be called for code checks and the like
 % TODO May add flags for levels of testing
-% TODO Method setup in dat_test may become global fixture
-% TODO Delete sinusoidLayer_test from this folder
+% TODO Possible for repo commit sha conflict
+% @body Technically two different repos can have the same commit hash, in
+% which case the db.json file should be restructured
 if nargin == 1; repo = 'rigbox'; end
 try
   %% Initialize enviroment
@@ -54,9 +55,8 @@ try
     'Coverage file may not have been updated')
   
   %% Diagnostics
-  % failed = {all_tests([results.Failed]).Name}';
-  % [info,filePaths] = checkcode(...);
-  % Load benchmarks and compare for performance tests?
+  % Summarize the results of the tests and write results to the JSON file
+  % located at dbPath
   status = iff(all([results.Passed]), 'success', 'failure');
   failStr = sprintf('%i/%i tests failed', sum([results.Failed]), length(results));
   context = iff(all([results.Passed]), 'All passed', failStr);
@@ -64,10 +64,17 @@ try
     'commit', id, ...
     'results', results, ...
     'status', status, ...
-    'description', context);
+    'description', context, ...
+    'coverage', []); % Coverage updated by Node.js script
   if file.exists(dbPath)
     data = jsondecode(fileread(dbPath));
-    report = [report; data];
+    idx = strcmp(id, {data.commit}); % Check record exists for this commit
+    if any(idx) % If so update record
+      data(idx) = report;
+      report = data;
+    else % ...or append record
+      report = [report; data];
+    end
   end
   fid = fopen(dbPath, 'w+');
   fprintf(fid, '%s', jsonencode(report));

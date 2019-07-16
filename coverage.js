@@ -23,7 +23,7 @@ var fs = require('fs'),
     crypto = require('crypto'),
     assert = require('assert').strict,
     parser = new xml2js.Parser(),
-    timestamp, md5;
+    timestamp, md5, cb;
 var timestamp;
 var token = process.env.COVERALLS_TOKEN;
 
@@ -33,7 +33,9 @@ var token = process.env.COVERALLS_TOKEN;
  * @param {Array} classList - An array of class objects from the loaded XML file.
  * @param {String} path - The root path of the code repository.
  * @param {String} sha - The commit SHA for this coverage test.
- * @returns {Object} Object containing array of source code files and their code coverage
+ * @param {function} callback - The callback function to run when complete.  Takes object containing array of source
+ * code files and their code coverage
+ * @returns {Object}
  * @todo Generalize path default
  */
 const formatCoverage = function(classList, path, sha) {
@@ -63,7 +65,7 @@ const formatCoverage = function(classList, path, sha) {
   job.source_files = sourceFiles;
   job.commit_sha = sha;
   job.run_at = timestamp; // "2013-02-18 00:52:48 -0800"
-  return job;
+  cb(job);
 }
 
 /**
@@ -71,12 +73,14 @@ const formatCoverage = function(classList, path, sha) {
  * @see {@link https://docs.coveralls.io/api-reference|Coveralls API docs}
  * @param {String} path - Path to the XML file containing coverage information.
  * @param {String} sha - The commit SHA for this coverage test
- * @returns {Object} Object containing array of source code files and their code coverage
+ * @param {String} repo - The repo to which the commit belongs
+ * @param {function} callback - The callback function to run when complete
  * @todo Remove assert
  * @todo Generalize ignoring of submodules
  * @see {@link https://github.com/cobertura/cobertura/wiki|Cobertura Wiki}
  */
-const coverage = function(path, sha) {
+const coverage = function(path, repo, sha, callback) {
+  cb = callback; // @fixme Making callback global feels hacky
   fs.readFile(path, function(err, data) { // Read in XML file
      parser.parseString(data, function (err, result) { // Parse XML
         const rigboxPath = result.coverage.sources[0].source[0]; // Extract root code path
@@ -90,22 +94,19 @@ const coverage = function(path, sha) {
         //console.log(classes.length);
 
         // The submodules
-        var alyx_matlab = [];
-        var signals = [];
-        var npy_matlab = [];
-        var wheelAnalysis = [];
+        var modules = {'rigbox' : [], 'alyx-matlab' : [], 'signals' : [], 'npy-matlab' : [], 'wheelAnalysis' : []};
         // Sort into piles
-        classes = classes.filter(function (e) {
+        modules['rigbox'] = classes.filter(function (e) {
             if (e.$.filename.search(/(tests\\|_.*test|docs\\)/i) != -1) {return false;} // Filter out tests and docs
             if (!Array.isArray(e.lines[0].line)) {return false;} // Filter out files with no functional lines
-            if (e.$.filename.startsWith('alyx-matlab\\')) {alyx_matlab.push(e); return false;}
-            if (e.$.filename.startsWith('signals\\')) {signals.push(e); return false;}
-            if (e.$.filename.startsWith('npy-matlab\\')) {npy_matlab.push(e); return false;}
-            if (e.$.filename.startsWith('wheelAnalysis\\')) {wheelAnalysis.push(e); return false;}
+            if (e.$.filename.startsWith('alyx-matlab\\')) {modules['alyx-matlab'].push(e); return false;}
+            if (e.$.filename.startsWith('signals\\')) {modules.signals.push(e); return false;}
+            if (e.$.filename.startsWith('npy-matlab\\')) {modules['npy-matlab'].push(e); return false;}
+            if (e.$.filename.startsWith('wheelAnalysis\\')) {modules.wheelAnalysis.push(e); return false;}
             else {return true};
         });
         //console.log(obj.source_files[0].coverage.length);
-        return obj = formatCoverage(classes, rigboxPath);
+        formatCoverage(modules[repo], rigboxPath, callback);
      });
   });
 };
@@ -115,7 +116,7 @@ const coverage = function(path, sha) {
  * @param {String} path - Path to the source code file.
  * @returns {Object} key `Hash` contains MD5 digest string of file; `count` contains number of lines in source file
  */
-const md5 = function(path) {
+md5 = function(path) {
   var hash = crypto.createHash('md5'); // Creating hash object
   var buf = fs.readFileSync(path, 'utf-8'); // Read in file
   var count = buf.split(/\r\n|\r|\n/).length; // Count the number of lines
