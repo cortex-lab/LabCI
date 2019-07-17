@@ -84,7 +84,7 @@ function loadTestRecords(id) {
 
 // Serve the test results for requested commit id
 srv.get('/github/:id', function (req, res) {
-  console.log(req.params.id)
+  console.log('Request for test results for commit ' + req.params.id.substring(0,6))
   const record = loadTestRecords(req.params.id);
   res.send(record['results']);
 });
@@ -108,6 +108,50 @@ srv.get('/coverage/:repo/:branch', async (req, res) => {
         if (record['status'] === 'error') {throw 500}; // Test found for commit but errored
         report['message'] = Math.round(record['coverage']*100)/100 + '%';
         report['color'] = (record['coverage'] > 75 ? 'green' : 'red');
+      } catch (err) { // No coverage value
+        report['message'] = (err === 404 ? 'pending' : 'unknown');
+        report['color'] = 'orange';
+        // Check test isn't already on the pile
+        let onPile = false;
+        for (let job of queue.pile) { if (job.id === id) { onPile = true; break; } };
+        if (!onPile) { // Add test to queue
+          queue.add({
+            sha: id,
+            owner: 'cortex-lab', // @todo Generalize repo owner
+            repo: req.params.repo,
+            status: '',
+            context: ''});
+        }
+      } finally { // Send report
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify(report));}
+    } else { throw 404 }; // Specified repo or branch not found
+  } catch (error) {
+    let msg = (error === 404 ? `${req.params.repo}/${req.params.branch} not found` : error); // @fixme error thrown by request not 404
+    console.error(msg)
+    res.statusCode = 401; // If not found, send 401 for security reasons
+    res.send(msg);
+  }
+});
+
+// Serve the build status
+srv.get('/status/:repo/:branch', async (req, res) => {
+  // Find head commit of branch
+  try {
+    const { data } = await request('GET /repos/:owner/:repo/git/refs/heads/:branch', {
+      owner: 'cortex-lab', // @todo Generalize repo owner
+      repo: req.params.repo,
+      branch: req.params.branch
+    });
+    if (data.ref.endsWith('/' + req.params.branch)) {
+      console.log('Request for ' + req.params.branch + ' build status')
+      let id = data.object.sha;
+      var report = {'schemaVersion': 1, 'label': 'build'};
+      try { // Try to load coverage record
+        record = await loadTestRecords(id);
+        if (typeof record == 'undefined' || record['status'] == '') {throw 404}; // Test not found for commit
+        report['message'] = (record['status'] === 'success' ? 'passing' : 'failing');
+        report['color'] = (record['status'] === 'success' ? 'green' : 'red');
       } catch (err) { // No coverage value
         report['message'] = (err === 404 ? 'pending' : 'unknown');
         report['color'] = 'orange';
