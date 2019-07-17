@@ -106,7 +106,7 @@ const coverage = function(path, repo, sha, callback) {
             else {return true};
         });
         //console.log(obj.source_files[0].coverage.length);
-        formatCoverage(modules[repo], rigboxPath, callback);
+        formatCoverage(modules[repo.toLowerCase()], rigboxPath, callback);
      });
   });
 };
