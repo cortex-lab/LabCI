@@ -21,12 +21,13 @@ const id = process.env.GITHUB_APP_IDENTIFIER;
 const secret = process.env.GITHUB_WEBHOOK_SECRET;
 
 // Configure ssh tunnel
-const cmd = 'ssh -tt -R 80:localhost:3000 serveo.net';
-const sh = String(cp.execFileSync('where', ['git'])).replace('cmd\\git.exe', 'bin\\sh.exe');
+const cmd = 'ssh -tt -R gladius:80:localhost:3000 serveo.net';
+const sh = String(cp.execFileSync('where', ['git'])).replace(/cmd\\git.exe\s*/gi, 'bin\\sh.exe');
 const tunnel = () => {
   let ssh = cp.spawn(sh, ['-c', cmd])
   ssh.stdout.on('data', (data) => { console.log(`stdout: ${data}`); });
   ssh.on('exit', () => { console.log('Reconnecting to Serveo'); tunnel(); });
+  ssh.on('error', (e) => { console.error(e) });
 }
 
 // Create handler to verify posts signed with webhook secret.  Content type must be application/json
@@ -65,7 +66,7 @@ srv.post('/github', async (req, res, next) => {
         const installationId = data.id;
         installationAccessToken = await app.getInstallationAccessToken({ installationId });
         handler(req, res, () => res.end('ok'))
-        next();
+        //next();
     } catch (error) {
     next(error);
     }
@@ -89,31 +90,31 @@ srv.get('/github/:id', function (req, res) {
 });
 
 // Serve the coverage results
-srv.get('/coverage/:repo/:branch', function (req, res) {
+srv.get('/coverage/:repo/:branch', async (req, res) => {
   // Find head commit of branch
   try {
-    const result = await request('GET /repos/:owner/:repo/git/refs/heads/:branch', {
+    const { data } = await request('GET /repos/:owner/:repo/git/refs/heads/:branch', {
       owner: 'cortex-lab', // @todo Generalize repo owner
       repo: req.params.repo,
       branch: req.params.branch
     });
-    if result.data.ref.endsWith('/' + req.params.branch) {
+    if (data.ref.endsWith('/' + req.params.branch)) {
       console.log('Request for ' + req.params.branch + ' coverage')
-      let id = result.data.object.sha;
+      let id = data.object.sha;
       var report = {'schemaVersion': 1, 'label': 'coverage'};
       try { // Try to load coverage record
         record = await loadTestRecords(id);
         if (typeof record == 'undefined' || record['coverage'] == []) {throw 404}; // Test not found for commit
         if (record['status'] === 'error') {throw 500}; // Test found for commit but errored
-        report['message'] = record['coverage'] + '%';
+        report['message'] = Math.round(record['coverage']*100)/100 + '%';
         report['color'] = (record['coverage'] > 75 ? 'green' : 'red');
       } catch (err) { // No coverage value
         report['message'] = (err === 404 ? 'pending' : 'unknown');
         report['color'] = 'orange';
         // Check test isn't already on the pile
         let onPile = false;
-        for (let job of queue.pile) { if job.id === id { onPile = true; break; } };
-        if !onPile { // Add test to queue
+        for (let job of queue.pile) { if (job.id === id) { onPile = true; break; } };
+        if (!onPile) { // Add test to queue
           queue.add({
             sha: id,
             owner: 'cortex-lab', // @todo Generalize repo owner
@@ -123,12 +124,10 @@ srv.get('/coverage/:repo/:branch', function (req, res) {
         }
       } finally { // Send report
         res.setHeader('Content-Type', 'application/json');
-        console.log(report)
         res.end(JSON.stringify(report));}
-      }
     } else { throw 404 }; // Specified repo or branch not found
-  catch (error) {
-    let msg = (error === 404 ? `${req.params.repo}/${req.params.branch} not found` : error);
+  } catch (error) {
+    let msg = (error === 404 ? `${req.params.repo}/${req.params.branch} not found` : error); // @fixme error thrown by request not 404
     console.error(msg)
     res.statusCode = 401; // If not found, send 401 for security reasons
     res.send(msg);
@@ -210,18 +209,18 @@ queue.on('finish', job => { // On job end post result to API
  * @todo Save full coverage object for future inspection
  */
 queue.on('complete', job => { // On job end post result to API
-  console.log('Updating coverage for ' + job.id)
+  console.log('Updating coverage for job #' + job.id)
   Coverage('./CoverageResults.xml', job.data.repo, job.data.id, obj => {
     // Digest and save percentage coverage
     let misses = 0, hits = 0;
-    for (let file of job.source_files) {
-      misses += file.coverage.filter(x => x == 0).length;
+    for (let file of obj.source_files) {
+      misses += file.coverage.filter(x => x === 0).length;
       hits += file.coverage.filter(x => x > 0).length;
     }
     // Load data and save
     let records = JSON.parse(fs.readFileSync('./db.json', 'utf8'));
     if (!Array.isArray(records)) records = [records]; // Ensure array
-    for (let o of records) { if o.commit === job.data.id {o.coverage = hits / (hits + misses)}; break; } // Add percentage
+    for (let o of records) { if (o.commit === job.data.id) {o.coverage = hits / (hits + misses) * 100}; break; } // Add percentage
     // Save object
     fs.writeFile('./db.json', JSON.stringify(records), function(err) {
     if (err) { console.log(err); }
