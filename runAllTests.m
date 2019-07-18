@@ -10,7 +10,7 @@ try
   %% Initialize enviroment
   dbPath = 'C:\Users\Experiment\db.json';
   fprintf('Running tests\n')
-  fprintf('Repo = %s\n', repo)
+  fprintf('Repo = %s, sha = %s\n', repo, id)
   origDir = pwd;
   cleanup = onCleanup(@() cd(origDir));
   cd(fullfile(fileparts(which('addRigboxPaths')),'tests'))

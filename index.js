@@ -86,7 +86,12 @@ function loadTestRecords(id) {
 srv.get('/github/:id', function (req, res) {
   console.log('Request for test results for commit ' + req.params.id.substring(0,6))
   const record = loadTestRecords(req.params.id);
-  res.send(record['results']);
+  if (typeof record == 'undefined') {
+  	res.statusCode = 404;
+  	res.send(`Record for commit ${req.params.id} not found`);
+  } else {
+  	res.send(record['results']);
+  }
 });
 
 // Serve the coverage results
@@ -241,7 +246,7 @@ queue.on('finish', job => { // On job end post result to API
         accept: "application/vnd.github.machine-man-preview+json"},
     sha: job.data['sha'],
     state: job.data['status'],
-    target_url: `${process.env.WEBHOOK_PROXY_URL}/events/${job.data.sha}`, // FIXME replace url
+    target_url: `${process.env.WEBHOOK_PROXY_URL}/github/${job.data.sha}`, // FIXME replace url
     description: job.data['context'],
     context: 'continuous-integration/ZTEST'
   });
