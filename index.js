@@ -269,7 +269,7 @@ queue.on('complete', job => { // On job end post result to API
     // Load data and save
     let records = JSON.parse(fs.readFileSync('./db.json', 'utf8'));
     if (!Array.isArray(records)) records = [records]; // Ensure array
-    for (let o of records) { if (o.commit === job.data.id) {o.coverage = hits / (hits + misses) * 100}; break; } // Add percentage
+    for (let o of records) { if (o.commit === job.data.sha) {o.coverage = hits / (hits + misses) * 100}; break; } // Add percentage
     // Save object
     fs.writeFile('./db.json', JSON.stringify(records), function(err) {
     if (err) { console.log(err); }

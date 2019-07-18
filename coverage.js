@@ -91,7 +91,6 @@ const coverage = function(path, repo, sha, callback) {
         const packages = result.coverage.packages[0].package;
         packages.forEach(package => { classes.push(package.classes[0].class) }); // Get all classes
         classes = classes.reduce((acc, val) => acc.concat(val), []); // Flatten
-        //console.log(classes.length);
 
         // The submodules
         var modules = {'rigbox' : [], 'alyx-matlab' : [], 'signals' : [], 'npy-matlab' : [], 'wheelAnalysis' : []};
@@ -105,7 +104,6 @@ const coverage = function(path, repo, sha, callback) {
             if (e.$.filename.startsWith('wheelAnalysis\\')) {modules.wheelAnalysis.push(e); return false;}
             else {return true};
         });
-        //console.log(obj.source_files[0].coverage.length);
         formatCoverage(modules[repo.toLowerCase()], rigboxPath, callback);
      });
   });
