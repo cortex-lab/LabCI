@@ -109,10 +109,10 @@ srv.get('/coverage/:repo/:branch', async (req, res) => {
       var report = {'schemaVersion': 1, 'label': 'coverage'};
       try { // Try to load coverage record
         record = await loadTestRecords(id);
-        if (typeof record == 'undefined' || record['coverage'] == []) {throw 404}; // Test not found for commit
+        if (typeof record == 'undefined' || record['coverage'] == '') {throw 404}; // Test not found for commit
         if (record['status'] === 'error') {throw 500}; // Test found for commit but errored
         report['message'] = Math.round(record['coverage']*100)/100 + '%';
-        report['color'] = (record['coverage'] > 75 ? 'green' : 'red');
+        report['color'] = (record['coverage'] > 75 ? 'brightgreen' : 'red');
       } catch (err) { // No coverage value
         report['message'] = (err === 404 ? 'pending' : 'unknown');
         report['color'] = 'orange';
@@ -121,6 +121,7 @@ srv.get('/coverage/:repo/:branch', async (req, res) => {
         for (let job of queue.pile) { if (job.id === id) { onPile = true; break; } };
         if (!onPile) { // Add test to queue
           queue.add({
+            skipPost : true,
             sha: id,
             owner: 'cortex-lab', // @todo Generalize repo owner
             repo: req.params.repo,
@@ -156,7 +157,7 @@ srv.get('/status/:repo/:branch', async (req, res) => {
         record = await loadTestRecords(id);
         if (typeof record == 'undefined' || record['status'] == '') {throw 404}; // Test not found for commit
         report['message'] = (record['status'] === 'success' ? 'passing' : 'failing');
-        report['color'] = (record['status'] === 'success' ? 'green' : 'red');
+        report['color'] = (record['status'] === 'success' ? 'brightgreen' : 'red');
       } catch (err) { // No coverage value
         report['message'] = (err === 404 ? 'pending' : 'unknown');
         report['color'] = 'orange';
@@ -165,6 +166,7 @@ srv.get('/status/:repo/:branch', async (req, res) => {
         for (let job of queue.pile) { if (job.id === id) { onPile = true; break; } };
         if (!onPile) { // Add test to queue
           queue.add({
+            skipPost: true,
             sha: id,
             owner: 'cortex-lab', // @todo Generalize repo owner
             repo: req.params.repo,
@@ -238,6 +240,7 @@ queue.process(async (job, done) => {
  */
 queue.on('finish', job => { // On job end post result to API
   console.log(`Job ${job.id} complete`)
+  if (job.data.skipPost === true) { return; }
   request("POST /repos/:owner/:repo/statuses/:sha", {
     owner: job.data['owner'],
     repo: job.data['repo'],
@@ -259,7 +262,7 @@ queue.on('finish', job => { // On job end post result to API
  */
 queue.on('complete', job => { // On job end post result to API
   console.log('Updating coverage for job #' + job.id)
-  Coverage('./CoverageResults.xml', job.data.repo, job.data.id, obj => {
+  Coverage('./CoverageResults.xml', job.data.repo, job.data.sha, obj => {
     // Digest and save percentage coverage
     let misses = 0, hits = 0;
     for (let file of obj.source_files) {
@@ -269,7 +272,7 @@ queue.on('complete', job => { // On job end post result to API
     // Load data and save
     let records = JSON.parse(fs.readFileSync('./db.json', 'utf8'));
     if (!Array.isArray(records)) records = [records]; // Ensure array
-    for (let o of records) { if (o.commit === job.data.sha) {o.coverage = hits / (hits + misses) * 100}; break; } // Add percentage
+    for (let o of records) { if (o.commit === job.data.sha) {o.coverage = hits / (hits + misses) * 100; break; }} // Add percentage
     // Save object
     fs.writeFile('./db.json', JSON.stringify(records), function(err) {
     if (err) { console.log(err); }
