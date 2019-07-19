@@ -293,8 +293,8 @@ handler.on('push', async function (event) {
   console.log('Received a push event for %s to %s',
     event.payload.repository.name,
     event.payload.ref)
-  for (commit of event.payload.commits) { // For each commit pushed...
-    try {
+  try { // Run tests for head commit only
+    let head_commit = event.payload.head_commit.id;
     // Post a 'pending' status while we do our tests
     await request('POST /repos/:owner/:repo/statuses/:sha', {
             owner: 'cortex-lab',
@@ -303,22 +303,21 @@ handler.on('push', async function (event) {
                 authorization: `token ${installationAccessToken}`,
                 accept: 'application/vnd.github.machine-man-preview+json'
             },
-            sha: commit['id'],
+            sha: head_commit,
             state: 'pending',
-            target_url: `${process.env.WEBHOOK_PROXY_URL}/events/${commit.id}`, // fail
+            target_url: `${process.env.WEBHOOK_PROXY_URL}/events/${head_commit}`, // fail
             description: 'Tests error',
             context: 'continuous-integration/ZTEST'
     });
     // Add a new test job to the queue
     queue.add({
-        sha: commit['id'],
+        sha: head_commit,
         owner: 'cortex-lab', // @todo Generalize repo owner field
         repo: event.payload.repository.name,
         status: '',
         context: ''
     });
-    } catch (error) {console.log(error)}
-  };
+  } catch (error) {console.log(error)}
 });
 
 // Start the server in the port 3000
