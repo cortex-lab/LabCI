@@ -5,7 +5,9 @@ function runAllTests(id, repo)
 % TODO Possible for repo commit sha conflict
 % @body Technically two different repos can have the same commit hash, in
 % which case the db.json file should be restructured
-if nargin == 1; repo = 'rigbox'; end
+% v1.0.1
+if nargin < 2; repo = 'rigbox'; end
+if nargin < 1; id = []; end
 try
   %% Initialize enviroment
   dbPath = 'C:\Users\Experiment\db.json';
@@ -53,6 +55,9 @@ try
   results = runner.run(all_tests);
   assert(now - file.modDate(reportFile) < 0.001, ...
     'Coverage file may not have been updated')
+  
+  % If no commit id set, simply exit the function
+  if isempty(id); return; end
   
   %% Diagnostics
   % Summarize the results of the tests and write results to the JSON file
