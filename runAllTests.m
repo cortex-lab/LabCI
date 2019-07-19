@@ -77,7 +77,7 @@ try
     end
   end
   fid = fopen(dbPath, 'w+');
-  fprintf(fid, '%s', jsonencode(report));
+  fprintf(fid, '%s', obj2json(report));
   exit(fclose(fid))
 catch ex
   fprintf('Error in ''%s'' line %i: %s: %s\n', ...
