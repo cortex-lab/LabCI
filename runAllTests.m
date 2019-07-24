@@ -2,14 +2,17 @@ function runAllTests(id, repo)
 %% Script for running all Rigbox tests
 % To be called for code checks and the like
 % TODO May add flags for levels of testing
-% TODO Method setup in dat_test may become global fixture
-% TODO Delete sinusoidLayer_test from this folder
-if nargin == 1; repo = 'rigbox'; end
+% TODO Possible for repo commit sha conflict
+% @body Technically two different repos can have the same commit hash, in
+% which case the db.json file should be restructured
+% v1.0.1
+if nargin < 2; repo = 'rigbox'; end
+if nargin < 1; id = []; end
 try
   %% Initialize enviroment
   dbPath = 'C:\Users\Experiment\db.json';
   fprintf('Running tests\n')
-  fprintf('Repo = %s\n', repo)
+  fprintf('Repo = %s, sha = %s\n', repo, id)
   origDir = pwd;
   cleanup = onCleanup(@() cd(origDir));
   cd(fullfile(fileparts(which('addRigboxPaths')),'tests'))
@@ -53,10 +56,12 @@ try
   assert(now - file.modDate(reportFile) < 0.001, ...
     'Coverage file may not have been updated')
   
+  % If no commit id set, simply exit the function
+  if isempty(id); return; end
+  
   %% Diagnostics
-  % failed = {all_tests([results.Failed]).Name}';
-  % [info,filePaths] = checkcode(...);
-  % Load benchmarks and compare for performance tests?
+  % Summarize the results of the tests and write results to the JSON file
+  % located at dbPath
   status = iff(all([results.Passed]), 'success', 'failure');
   failStr = sprintf('%i/%i tests failed', sum([results.Failed]), length(results));
   context = iff(all([results.Passed]), 'All passed', failStr);
@@ -64,13 +69,20 @@ try
     'commit', id, ...
     'results', results, ...
     'status', status, ...
-    'description', context);
+    'description', context, ...
+    'coverage', []); % Coverage updated by Node.js script
   if file.exists(dbPath)
     data = jsondecode(fileread(dbPath));
-    report = [report; data];
+    idx = strcmp(id, {data.commit}); % Check record exists for this commit
+    if any(idx) % If so update record
+      data(idx) = report;
+      report = data;
+    else % ...or append record
+      report = [report; data];
+    end
   end
   fid = fopen(dbPath, 'w+');
-  fprintf(fid, '%s', jsonencode(report));
+  fprintf(fid, '%s', obj2json(report));
   exit(fclose(fid))
 catch ex
   fprintf('Error in ''%s'' line %i: %s: %s\n', ...

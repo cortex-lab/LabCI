@@ -8,11 +8,11 @@ Run the install script to install all dependencies, then create your .env file c
 
 ### Prerequisites
 
-Requires MATLAB 2017a or later and Node.js.  The following Node.js modules are required:
+Requires MATLAB 2017a or later, Node.js and Git Bash.  The following Node.js modules are required:
 
 ```
 npm install --save express dotenv @octokit/app @octokit/request ...
-github-webhook-handler smee-client xml2js
+github-webhook-handler xml2js
 ```
 
 ### Installing
@@ -23,22 +23,6 @@ Make sure runAllTests.m is on your MATLAB paths
 
 TODO
 
-### Break down into end to end tests
-
-Explain what these tests test and why
-
-```
-Give an example
-```
-
-### And coding style tests
-
-Explain what these tests test and why
-
-```
-Give an example
-```
-
 ## Deployment
 
 To work properly you need to create install a Github app on your target repository and download the private key.  Update your .env file like so:
@@ -47,9 +31,8 @@ To work properly you need to create install a Github app on your target reposito
 GITHUB_PRIVATE_KEY=path\to\private-key.pem
 GITHUB_APP_IDENTIFIER=1234
 GITHUB_WEBHOOK_SECRET=
-WEBHOOK_PROXY_URL=https://smee.io/abcd
+WEBHOOK_PROXY_URL=
 RIGBOX_REPO_PATH=C:\Path\To\Code\Repo
-COVERALLS_TOKEN=
 ```
 
 To run at startup create a batch file with the following command:
@@ -62,7 +45,8 @@ Create a shortcut in your startup folder ([Windows-logo] + [R] in Windows-10 and
 
 ## Built With
 
-* [Coveralls](coveralls.io) - Code coverage
+* [Serveo](serveo.net) - SSH tunneling service
+* [Shields.io](shields.io) - Display shields
 
 ## Contributing
 
