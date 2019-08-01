@@ -293,6 +293,8 @@ handler.on('push', async function (event) {
   console.log('Received a push event for %s to %s',
     event.payload.repository.name,
     event.payload.ref)
+  // Ignore documentaion branches
+  if (event.payload.ref.endsWith('documentation')) { return; }
   try { // Run tests for head commit only
     let head_commit = event.payload.head_commit.id;
     // Post a 'pending' status while we do our tests
