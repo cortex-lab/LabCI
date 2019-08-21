@@ -86,10 +86,10 @@ function loadTestRecords(id) {
 
 /**
  * Compare coverage of two commits and post a failed status if coverage of head commit <= base commit.
- * @param {object} ids - object with 'head' and 'base' fields holding their respective commit ids.
+ * @param {object} data - job data object with coverage field holding head and base commit ids.
  */
-function compareCoverage(ids) {
-  //let ids = {head: head_commit, base: base_commit};
+function compareCoverage(data) {
+  let ids = data.coverage;
   let status, description;
   let records = loadTestRecords(Object.values(ids));
   // Filter duplicates just in case
@@ -101,12 +101,12 @@ function compareCoverage(ids) {
     description = 'Failed to determine coverage as tests incomplete due to errors';
   } else if (records.length === 2 && has_coverage) {
     // Ensure first record is for head commit
-    records[0].commit === ids.base { records.reverse() };
+    if (records[0].commit === ids.base) { records.reverse() };
     // Calculate coverage change
     let coverage = records[0].coverage - records[1].coverage;
     status = (coverage > 0 ? 'success' : 'failure');
     description = 'Coverage ' + (coverage > 0 ? 'increased' : 'decreased')
-                              + ' from ' Math.round(records[1].coverage*100)/100 + '%'
+                              + ' from ' + Math.round(records[1].coverage*100)/100 + '%'
                               + ' to ' + Math.round(records[0].coverage*100)/100 + '%';
   } else {
     for (let commit in ids) {
@@ -120,7 +120,7 @@ function compareCoverage(ids) {
              skipPost: true,
              sha: ids[commit],
              owner: 'cortex-lab', // @todo Generalize repo owner
-             repo: event.payload.repository.name,
+             repo: data.repo,
              status: '',
              context: '',
              coverage: ids // Note cf commit
@@ -132,17 +132,17 @@ function compareCoverage(ids) {
   // Post a our coverage status
   request('POST /repos/:owner/:repo/statuses/:sha', {
           owner: 'cortex-lab',
-          repo: event.payload.repository.name,
+          repo: data.repo,
           headers: {
               authorization: `token ${installationAccessToken}`,
               accept: 'application/vnd.github.machine-man-preview+json'
           },
           sha: ids.head,
           state: status,
-          target_url: `${process.env.WEBHOOK_PROXY_URL}/events/${head_commit}`, // fail
+          target_url: `${process.env.WEBHOOK_PROXY_URL}/events/${ids.head}`, // fail
           description: description,
           context: 'coverage/ZTEST'
-  }
+  });
 };
 
 // Serve the test results for requested commit id
@@ -303,8 +303,11 @@ queue.process(async (job, done) => {
  */
 queue.on('finish', job => { // On job end post result to API
   console.log(`Job ${job.id} complete`)
-  // TODO Post FAIL for coverage test on error
-  if typeof(job.data.coverage) != 'undefined' { }
+  // If job was part of coverage test and error'd, call compare function 
+  // (otherwise this is done by the on complete callback after writing coverage to file)
+  if (typeof job.data.coverage !== 'undefined' && job.data['status'] == 'error') { 
+    compareCoverage(job.data); 
+  };
   if (job.data.skipPost === true) { return; }
   request("POST /repos/:owner/:repo/statuses/:sha", {
     owner: job.data['owner'],
@@ -342,7 +345,7 @@ queue.on('complete', job => { // On job end post result to API
     fs.writeFile('./db.json', JSON.stringify(records), function(err) {
     if (err) { console.log(err); return; }
     // If this test was to ascertain coverage, call comparison function
-    if (typeof job.data.coverage !== 'undefined') { compareCoverage(job.data.coverage); };
+    if (typeof job.data.coverage !== 'undefined') { compareCoverage(job.data); };
     });
   });
 });
@@ -394,8 +397,8 @@ handler.on('push', async function (event) {
 handler.on('pull_request', async function (event) {
   // Log the event
   console.log('Received a pull_request event for %s to %s',
-    event.payload.repository.name,
-    event.payload.ref)
+    event.payload.pull_request.head.repo.name,
+    event.payload.pull_request.head.ref)
   if (!event.payload.action.endsWith('opened') && event.payload.action !== 'synchronize') { return; }
   try { // Compare test coverage
     let head_commit = event.payload.pull_request.head.sha;
@@ -432,7 +435,11 @@ handler.on('pull_request', async function (event) {
           context: 'coverage/ZTEST'
     });
     // Check coverage exists
-    checkCoverage({head: head_commit, base: base_commit});
+    let data = {
+      repo: event.payload.repository.name, 
+      coverage: {head: head_commit, base: base_commit}
+    };
+    compareCoverage(data);
   } catch (error) {console.log(error)}
 });
 
