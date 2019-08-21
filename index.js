@@ -74,12 +74,75 @@ srv.post('/github', async (req, res, next) => {
 
 /**
  * Load MATLAB test results from db.json file.
- * @param {string} id - Function to call with job and done callback when.
+ * @param {string, array} id - Function to call with job and done callback when.
  */
 function loadTestRecords(id) {
   let obj = JSON.parse(fs.readFileSync('./db.json', 'utf8'));
   if (!Array.isArray(obj)) obj = [obj]; // Ensure array
-  return obj.find(o => o.commit === id);
+  let records = obj.filter(o => id.includes(o.commit));
+  // If single arg return as object, otherwise keep as array
+  return (!Array.isArray(id) && records.length === 1 ? records[0] : records)
+};
+
+/**
+ * Compare coverage of two commits and post a failed status if coverage of head commit <= base commit.
+ * @param {object} ids - object with 'head' and 'base' fields holding their respective commit ids.
+ */
+function compareCoverage(ids) {
+  //let ids = {head: head_commit, base: base_commit};
+  let status, description;
+  let records = loadTestRecords(Object.values(ids));
+  // Filter duplicates just in case
+  records = records.filter((set => o => !set.has(o.commit) && set.add(o.commit))(new Set));
+  has_coverage = records.every(o => (typeof o.coverage !== 'undefined' && o.coverage > 0));
+  // Check if any errored or failed to update coverage
+  if (records.filter(o => o.status === 'error').length > 0) {
+    status = 'failure';
+    description = 'Failed to determine coverage as tests incomplete due to errors';
+  } else if (records.length === 2 && has_coverage) {
+    // Ensure first record is for head commit
+    records[0].commit === ids.base { records.reverse() };
+    // Calculate coverage change
+    let coverage = records[0].coverage - records[1].coverage;
+    status = (coverage > 0 ? 'success' : 'failure');
+    description = 'Coverage ' + (coverage > 0 ? 'increased' : 'decreased')
+                              + ' from ' Math.round(records[1].coverage*100)/100 + '%'
+                              + ' to ' + Math.round(records[0].coverage*100)/100 + '%';
+  } else {
+    for (let commit in ids) {
+       // Check test isn't already on the pile
+       let job = queue.pile.filter(o => o.data.sha === ids[commit]);
+       if (job.length > 0) { // Already on pile
+          // Add coverage key to job data structure
+          if (typeof job[0].data.coverage === 'undefined') { job[0].data.coverage = ids; };
+       } else { // Add test to queue
+          queue.add({
+             skipPost: true,
+             sha: ids[commit],
+             owner: 'cortex-lab', // @todo Generalize repo owner
+             repo: event.payload.repository.name,
+             status: '',
+             context: '',
+             coverage: ids // Note cf commit
+          });
+       }
+    }
+    return;
+  };
+  // Post a our coverage status
+  request('POST /repos/:owner/:repo/statuses/:sha', {
+          owner: 'cortex-lab',
+          repo: event.payload.repository.name,
+          headers: {
+              authorization: `token ${installationAccessToken}`,
+              accept: 'application/vnd.github.machine-man-preview+json'
+          },
+          sha: ids.head,
+          state: status,
+          target_url: `${process.env.WEBHOOK_PROXY_URL}/events/${head_commit}`, // fail
+          description: description,
+          context: 'coverage/ZTEST'
+  }
 };
 
 // Serve the test results for requested commit id
@@ -240,6 +303,8 @@ queue.process(async (job, done) => {
  */
 queue.on('finish', job => { // On job end post result to API
   console.log(`Job ${job.id} complete`)
+  // TODO Post FAIL for coverage test on error
+  if typeof(job.data.coverage) != 'undefined' { }
   if (job.data.skipPost === true) { return; }
   request("POST /repos/:owner/:repo/statuses/:sha", {
     owner: job.data['owner'],
@@ -275,7 +340,9 @@ queue.on('complete', job => { // On job end post result to API
     for (let o of records) { if (o.commit === job.data.sha) {o.coverage = hits / (hits + misses) * 100; break; }} // Add percentage
     // Save object
     fs.writeFile('./db.json', JSON.stringify(records), function(err) {
-    if (err) { console.log(err); }
+    if (err) { console.log(err); return; }
+    // If this test was to ascertain coverage, call comparison function
+    if (typeof job.data.coverage !== 'undefined') { compareCoverage(job.data.coverage); };
     });
   });
 });
@@ -293,7 +360,7 @@ handler.on('push', async function (event) {
   console.log('Received a push event for %s to %s',
     event.payload.repository.name,
     event.payload.ref)
-  // Ignore documentaion branches
+  // Ignore documentation branches
   if (event.payload.ref.endsWith('documentation')) { return; }
   try { // Run tests for head commit only
     let head_commit = event.payload.head_commit.id;
@@ -308,7 +375,7 @@ handler.on('push', async function (event) {
             sha: head_commit,
             state: 'pending',
             target_url: `${process.env.WEBHOOK_PROXY_URL}/events/${head_commit}`, // fail
-            description: 'Tests error',
+            description: 'Tests running',
             context: 'continuous-integration/ZTEST'
     });
     // Add a new test job to the queue
@@ -319,6 +386,53 @@ handler.on('push', async function (event) {
         status: '',
         context: ''
     });
+  } catch (error) {console.log(error)}
+});
+
+// Handle pull request events
+// Here we'll update coverage
+handler.on('pull_request', async function (event) {
+  // Log the event
+  console.log('Received a pull_request event for %s to %s',
+    event.payload.repository.name,
+    event.payload.ref)
+  if (!event.payload.action.endsWith('opened') && event.payload.action !== 'synchronize') { return; }
+  try { // Compare test coverage
+    let head_commit = event.payload.pull_request.head.sha;
+    let base_commit = event.payload.pull_request.base.sha;
+    if (false) { // TODO for alyx only
+      // Post a 'pending' status while we do our tests
+      await request('POST /repos/:owner/:repo/statuses/:sha', {
+          owner: 'cortex-lab',
+          repo: event.payload.repository.name,
+          headers: {
+              authorization: `token ${installationAccessToken}`,
+              accept: 'application/vnd.github.machine-man-preview+json'
+          },
+          sha: head_commit,
+          state: 'pending',
+          target_url: `${process.env.WEBHOOK_PROXY_URL}/events/${head_commit}`, // fail
+          description: 'Tests running',
+          context: 'continuous-integration/ZTEST'
+      });
+    };
+
+    // Post a 'pending' status while we do our tests
+    request('POST /repos/:owner/:repo/statuses/:sha', {
+          owner: 'cortex-lab',
+          repo: event.payload.repository.name,
+          headers: {
+              authorization: `token ${installationAccessToken}`,
+              accept: 'application/vnd.github.machine-man-preview+json'
+          },
+          sha: head_commit,
+          state: 'pending',
+          target_url: `${process.env.WEBHOOK_PROXY_URL}/events/${head_commit}`, // fail
+          description: 'Checking coverage',
+          context: 'coverage/ZTEST'
+    });
+    // Check coverage exists
+    checkCoverage({head: head_commit, base: base_commit});
   } catch (error) {console.log(error)}
 });
 
