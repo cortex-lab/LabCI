@@ -147,7 +147,18 @@ function compareCoverage(data) {
 
 // Serve the test results for requested commit id
 srv.get('/github/:id', function (req, res) {
-  console.log('Request for test results for commit ' + req.params.id.substring(0,6))
+  console.log('Request for test log for commit ' + req.params.id.substring(0,6))
+  let log = `.\\src\\matlab_tests-${req.params.id}.log`;
+  fs.readFile(log, 'utf8', (err, data) => {
+    if (err) {
+    	res.statusCode = 404;
+    	res.send(`Record for commit ${req.params.id} not found`);
+    } else {
+    	res.statusCode = 200;
+      res.send(data);
+    }
+  });
+  /*
   const record = loadTestRecords(req.params.id);
   if (typeof record == 'undefined') {
   	res.statusCode = 404;
@@ -155,6 +166,7 @@ srv.get('/github/:id', function (req, res) {
   } else {
   	res.send(record['results']);
   }
+  */
 });
 
 // Serve the coverage results
@@ -277,7 +289,7 @@ queue.process(async (job, done) => {
            runTests.kill();
       	  done(new Error('Job stalled')) }, 5*60000);
      let args = ['-r', `runAllTests (""${job.data.sha}"",""${job.data.repo}"")`,
-       '-wait', '-log', '-nosplash', '-logfile', 'matlab_tests.log'];
+       '-wait', '-log', '-nosplash', '-logfile', `.\\src\\matlab_tests-${job.data.sha}.log`];
      runTests = cp.execFile('matlab', args, (error, stdout, stderr) => {
        clearTimeout(timer);
        if (error) { // Send error status
