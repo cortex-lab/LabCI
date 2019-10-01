@@ -45,8 +45,8 @@ Create a shortcut in your startup folder ([Windows-logo] + [R] in Windows-10 and
 
 ## Built With
 
-* [Serveo](serveo.net) - SSH tunneling service
-* [Shields.io](shields.io) - Display shields
+* [Serveo](https://serveo.net) - SSH tunneling service
+* [Shields.io](https://shields.io) - Display shields
 
 ## Contributing
 
