@@ -155,7 +155,10 @@ srv.get('/github/:id', function (req, res) {
     	res.send(`Record for commit ${req.params.id} not found`);
     } else {
     	res.statusCode = 200;
-      res.send(data);
+    	preText = '<html><body><pre>';
+    	postText = '</pre></body></html>';
+      res.send(preText + data + postText);
+
     }
   });
   /*
@@ -407,6 +410,8 @@ handler.on('push', async function (event) {
 // Handle pull request events
 // Here we'll update coverage
 handler.on('pull_request', async function (event) {
+  // Ignore documentation branches
+  if (event.payload.pull_request.head.ref === 'documentation') { return; }
   // Log the event
   console.log('Received a pull_request event for %s to %s',
     event.payload.pull_request.head.repo.name,

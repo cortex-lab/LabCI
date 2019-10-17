@@ -1,7 +1,13 @@
 # Changelog
 
-## [Latest](https://github.com/cortex-lab/matlab-ci/commits/master)
+## [Latest](https://github.com/cortex-lab/matlab-ci/commits/master) [2.2.0]
 
+### Modified
+
+- test log formatted in html
+- coverage checks ignored for branches named 'documentation' 
+
+## [2.1.0]
 ### Added
 
 - coverage increase check on pull request events
@@ -13,6 +19,7 @@
 - suppress warnings about shadowing builtins in runAllTests
 - run tests in subfolders
 - filter out performance tests
+- skip tests for commits to branches named 'documentation'
 
 ## [2.0.0]
 ### Added
