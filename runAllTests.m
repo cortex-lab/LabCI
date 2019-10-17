@@ -5,7 +5,7 @@ function runAllTests(id, repo)
 % TODO Possible for repo commit sha conflict
 % @body Technically two different repos can have the same commit hash, in
 % which case the db.json file should be restructured
-% v1.1.1
+% v1.1.2
 if nargin < 2; repo = 'rigbox'; end
 if nargin < 1; id = []; end
 try
@@ -14,12 +14,16 @@ try
   fprintf('Running tests\n')
   fprintf('Repo = %s, sha = %s\n', repo, id)
   origDir = pwd;
-  cleanup = onCleanup(@() cd(origDir));
+  cleanup = onCleanup(@() fun.applyForce({...
+    @() cd(origDir), ...
+    @() warning(origState)}));
   cd(fullfile(fileparts(which('addRigboxPaths')),'tests'))
   % Ideally we check code coverage and tests for all commits
   import matlab.unittest.TestRunner
   import matlab.unittest.plugins.CodeCoveragePlugin
   import matlab.unittest.plugins.codecoverage.CoberturaFormat
+  % Suppress warnings about shadowed builtins in utilities folder
+  warning('off','MATLAB:dispatcher:nameConflict')
   
   %% Gather Rigbox main tests
   main_tests = testsuite('IncludeSubfolders', true);
