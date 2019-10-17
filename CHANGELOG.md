@@ -13,6 +13,7 @@
 - suppress warnings about shadowing builtins in runAllTests
 - run tests in subfolders
 - filter out performance tests
+- skip checks for commits to branches named 'documentation'
 
 ## [2.0.0]
 ### Added
