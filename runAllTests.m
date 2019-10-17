@@ -5,7 +5,7 @@ function runAllTests(id, repo)
 % TODO Possible for repo commit sha conflict
 % @body Technically two different repos can have the same commit hash, in
 % which case the db.json file should be restructured
-% v1.0.1
+% v1.1.2
 if nargin < 2; repo = 'rigbox'; end
 if nargin < 1; id = []; end
 try
@@ -14,22 +14,28 @@ try
   fprintf('Running tests\n')
   fprintf('Repo = %s, sha = %s\n', repo, id)
   origDir = pwd;
-  cleanup = onCleanup(@() cd(origDir));
+  cleanup = onCleanup(@() fun.applyForce({...
+    @() cd(origDir), ...
+    @() warning(origState)}));
   cd(fullfile(fileparts(which('addRigboxPaths')),'tests'))
   % Ideally we check code coverage and tests for all commits
   import matlab.unittest.TestRunner
   import matlab.unittest.plugins.CodeCoveragePlugin
   import matlab.unittest.plugins.codecoverage.CoberturaFormat
+  % Suppress warnings about shadowed builtins in utilities folder
+  warning('off','MATLAB:dispatcher:nameConflict')
   
   %% Gather Rigbox main tests
-  main_tests = testsuite;
+  main_tests = testsuite('IncludeSubfolders', true);
   
   %% Gather signals tests
   root = getOr(dat.paths,'rigbox');
-  signals_tests = testsuite(fullfile(root, 'signals', 'tests'));
+  signals_tests = testsuite(fullfile(root, 'signals', 'tests'), ...
+    'IncludeSubfolders', true);
   
   %% Gather alyx-matlab tests
-  alyx_tests = testsuite(fullfile(root, 'alyx-matlab', 'tests'));
+  alyx_tests = testsuite(fullfile(root, 'alyx-matlab', 'tests'), ...
+    'IncludeSubfolders', true);
   
   %% Filter & run
   % the suite is automatically sorted based on shared fixtures. However, if
@@ -44,6 +50,12 @@ try
   elseif strcmp(repo, 'signals')
     all_tests = signals_tests;
   end
+  
+  % Filter out performance tests
+  % @todo Run performance tests
+  % @body Currently the performance tests are entirely filtered out
+  is_perf = @(t) contains(t.Name, 'perftest', 'IgnoreCase', true);
+  [~, all_tests] = fun.filter(is_perf, all_tests);
   
   runner = TestRunner.withTextOutput;
   reportFile = fullfile(fileparts(dbPath), 'CoverageResults.xml');
