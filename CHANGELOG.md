@@ -4,16 +4,21 @@
 
 ### Added
 
+- coverage increase check on pull request events
+
 ### Modified
 
-- Fix'd description field for pending status response
+- fix'd description field for pending status response
+- all logs saved into seperate files, no longer overwritten
+- suppress warnings about shadowing builtins in runAllTests
+- run tests in subfolders
+- filter out performance tests
 
 ## [2.0.0]
 ### Added
 
 - changelog
 - status and coverage endpoints for shields
-- coverage increase check on pull request events
 
 ### Modified
 
