@@ -1,6 +1,6 @@
 # Changelog
 
-## [Latest](https://github.com/cortex-lab/matlab-ci/commits/master)
+## [Latest](https://github.com/cortex-lab/matlab-ci/commits/master) [2.1.0]
 
 ### Added
 
