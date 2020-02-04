@@ -99,5 +99,6 @@ try
 catch ex
   fprintf('Error in ''%s'' line %i: %s: %s\n', ...
     ex.stack(1).name, ex.stack(1).line, ex.identifier, ex.message)
-  exit(1)
+  disp(getReport(ex)) % Display details for debugging
+  if ~isempty(id), exit(1), end
 end

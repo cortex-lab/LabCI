@@ -6,6 +6,7 @@
  * @requires module:"@octokit/app"
  * @requires module:"@octokit/request"
  * @requires module:express
+ * @requires module:localtunnel
  * @requires module:github-webhook-handler
  */
 const fs = require('fs');
@@ -16,18 +17,22 @@ const queue = new (require('./queue.js'))()
 const Coverage = require('./coverage');
 const { App } = require('@octokit/app');
 const { request } = require("@octokit/request");
+const localtunnel = require('localtunnel');
 
 const id = process.env.GITHUB_APP_IDENTIFIER;
 const secret = process.env.GITHUB_WEBHOOK_SECRET;
 
-// Configure ssh tunnel
-const cmd = 'ssh -tt -R gladius:80:localhost:3000 serveo.net';
-const sh = String(cp.execFileSync('where', ['git'])).replace(/cmd\\git.exe\s*/gi, 'bin\\sh.exe');
-const tunnel = () => {
-  let ssh = cp.spawn(sh, ['-c', cmd])
-  ssh.stdout.on('data', (data) => { console.log(`stdout: ${data}`); });
-  ssh.on('exit', () => { console.log('Reconnecting to Serveo'); tunnel(); });
-  ssh.on('error', (e) => { console.error(e) });
+// Configure a secure tunnel
+const openTunnel = async () => {
+  let args = {
+    port: 3000,
+ 	 subdomain: process.env.TUNNEL_SUBDOMAIN,
+	 host: process.env.TUNNEL_HOST
+  };
+  const tunnel = await localtunnel(args);
+  console.log(`Tunnel open on: ${tunnel.url}`);
+  tunnel.on('close', () => {console.log('Reconnecting'); openTunnel(); });
+  tunnel.on('error', (e) => { console.error(e) });
 }
 
 // Create handler to verify posts signed with webhook secret.  Content type must be application/json
@@ -288,9 +293,9 @@ queue.process(async (job, done) => {
      const timer = setTimeout(function() {
       	  console.log('Max test time exceeded')
       	  job.data['status'] = 'error';
-           job.data['context'] = 'Tests stalled after ~2 min';
+           job.data['context'] = 'Tests stalled after ~8 min';
            runTests.kill();
-      	  done(new Error('Job stalled')) }, 5*60000);
+      	  done(new Error('Job stalled')) }, 8*60000);
      let args = ['-r', `runAllTests (""${job.data.sha}"",""${job.data.repo}"")`,
        '-wait', '-log', '-nosplash', '-logfile', `.\\src\\matlab_tests-${job.data.sha}.log`];
      runTests = cp.execFile('matlab', args, (error, stdout, stderr) => {
@@ -467,8 +472,9 @@ var server = srv.listen(3000, function () {
 
    console.log("Handler listening at http://%s:%s", host, port)
 });
+
 // Start tunnel
-tunnel();
+openTunnel();
 
 // Log any unhandled errors
 process.on('unhandledRejection', (reason, p) => {

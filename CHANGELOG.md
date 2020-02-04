@@ -6,6 +6,8 @@
 
 - test log formatted in html
 - coverage checks ignored for branches named 'documentation' 
+- switch from Serveo to localtunnel
+- increased timeout from 5 to 8 minutes
 
 ## [2.1.0]
 ### Added
