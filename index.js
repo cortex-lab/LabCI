@@ -8,7 +8,11 @@
  * @requires module:express
  * @requires module:localtunnel
  * @requires module:github-webhook-handler
+ * @todo save auxiliary configuration into a separate config file
+ * @todo add abort option for when new commits added
  */
+import * as path from 'path';
+
 const fs = require('fs');
 const express = require('express')
 const srv = express();
@@ -21,6 +25,10 @@ const localtunnel = require('localtunnel');
 
 const id = process.env.GITHUB_APP_IDENTIFIER;
 const secret = process.env.GITHUB_WEBHOOK_SECRET;
+const appdata = process.env.APPDATA || process.env.HOMEPATH;
+const dbFile = path.join(appdata, '.ci-db.json')  // cache of test results
+const config = require('./config.json');
+const timeout = config.timeout || 8*60000
 
 // Configure a secure tunnel
 const openTunnel = async () => {
@@ -78,11 +86,11 @@ srv.post('/github', async (req, res, next) => {
 });
 
 /**
- * Load MATLAB test results from db.json file.
+ * Load MATLAB test results from ci-db.json file.
  * @param {string, array} id - Function to call with job and done callback when.
  */
 function loadTestRecords(id) {
-  let obj = JSON.parse(fs.readFileSync('./db.json', 'utf8'));
+  let obj = JSON.parse(fs.readFileSync(dbFile, 'utf8'));
   if (!Array.isArray(obj)) obj = [obj]; // Ensure array
   let records = obj.filter(o => id.includes(o.commit));
   // If single arg return as object, otherwise keep as array
@@ -99,7 +107,7 @@ function compareCoverage(data) {
   let records = loadTestRecords(Object.values(ids));
   // Filter duplicates just in case
   records = records.filter((set => o => !set.has(o.commit) && set.add(o.commit))(new Set));
-  has_coverage = records.every(o => (typeof o.coverage !== 'undefined' && o.coverage > 0));
+  let has_coverage = records.every(o => (typeof o.coverage !== 'undefined' && o.coverage > 0));
   // Check if any errored or failed to update coverage
   if (records.filter(o => o.status === 'error').length > 0) {
     status = 'failure';
@@ -113,6 +121,7 @@ function compareCoverage(data) {
     description = 'Coverage ' + (coverage > 0 ? 'increased' : 'decreased')
                               + ' from ' + Math.round(records[1].coverage*100)/100 + '%'
                               + ' to ' + Math.round(records[0].coverage*100)/100 + '%';
+    // TODO Maybe remove test from pile if we already have it?
   } else {
     for (let commit in ids) {
        // Check test isn't already on the pile
@@ -146,22 +155,22 @@ function compareCoverage(data) {
           state: status,
           target_url: `${process.env.WEBHOOK_PROXY_URL}/events/${ids.head}`, // fail
           description: description,
-          context: 'coverage/ZTEST'  // TODO Generalize
+          context: `coverage/${process.env.USERDOMAIN}`
   });
 }
 
 // Serve the test results for requested commit id
 srv.get('/github/:id', function (req, res) {
   console.log('Request for test log for commit ' + req.params.id.substring(0,6))
-  let log = `.\\src\\matlab_tests-${req.params.id}.log`;
+  let log = `.\\src\\matlab_tests-${req.params.id}.log`;  // TODO Generalize
   fs.readFile(log, 'utf8', (err, data) => {
     if (err) {
     	res.statusCode = 404;
     	res.send(`Record for commit ${req.params.id} not found`);
     } else {
     	res.statusCode = 200;
-    	preText = '<html lang="en-GB"><body><pre>';
-    	postText = '</pre></body></html>';
+    	let preText = '<html lang="en-GB"><body><pre>';
+    	let postText = '</pre></body></html>';
       res.send(preText + data + postText);
 
     }
@@ -191,7 +200,7 @@ srv.get('/coverage/:repo/:branch', async (req, res) => {
       let id = data.object.sha;
       var report = {'schemaVersion': 1, 'label': 'coverage'};
       try { // Try to load coverage record
-        record = await loadTestRecords(id);
+        let record = await loadTestRecords(id);
         if (typeof record == 'undefined' || record['coverage'] == '') {throw 404} // Test not found for commit
         if (record['status'] === 'error') {throw 500} // Test found for commit but errored
         report['message'] = Math.round(record['coverage']*100)/100 + '%';
@@ -276,7 +285,7 @@ queue.process(async (job, done) => {
   // If the repo is a submodule, modify path
   var path = process.env.REPO_PATH;
   if (job.data['repo'] === 'alyx-matlab' || job.data['repo'] === 'signals') {
-    path = path + '\\' + job.data['repo'];}
+    path = path + path.sep + job.data['repo'];}
   if (job.data['repo'] === 'alyx') { sha = 'dev' } // For Alyx checkout master
   // Checkout commit
   checkout = cp.execFile('checkout.bat ', [sha, path], (error, stdout, stderr) => {
@@ -293,12 +302,13 @@ queue.process(async (job, done) => {
      const timer = setTimeout(function() {
       	  console.log('Max test time exceeded')
       	  job.data['status'] = 'error';
-           job.data['context'] = 'Tests stalled after ~8 min';
-           runTests.kill();
-      	  done(new Error('Job stalled')) }, 8*60000);
+          job.data['context'] = `Tests stalled after ~${(timeout / 60000).toFixed(0)} min`;
+          runTests.kill();
+      	  done(new Error('Job stalled')) }, timeout);
      let args = ['-r', `runAllTests (""${job.data.sha}"",""${job.data.repo}"")`,
-       '-wait', '-log', '-nosplash', '-logfile', `.\\src\\matlab_tests-${job.data.sha}.log`];
-     runTests = cp.execFile('matlab', args, (error, stdout, stderr) => {
+       '-wait', '-log', '-nosplash', '-logfile', `.\\src\\matlab_tests-${job.data.sha}.log`];  // TODO Generalize
+     let program = config.program || 'matlab'
+     runTests = cp.execFile(program, args, (error, stdout, stderr) => {
        clearTimeout(timer);
        if (error) { // Send error status
          // Isolate error from log
@@ -325,7 +335,7 @@ queue.on('finish', job => { // On job end post result to API
   console.log(`Job ${job.id} complete`)
   // If job was part of coverage test and error'd, call compare function
   // (otherwise this is done by the on complete callback after writing coverage to file)
-  if (typeof job.data.coverage !== 'undefined' && job.data['status'] == 'error') {
+  if (typeof job.data.coverage !== 'undefined' && job.data['status'] === 'error') {
     compareCoverage(job.data);
   }
   if (job.data.skipPost === true) { return; }
@@ -339,7 +349,7 @@ queue.on('finish', job => { // On job end post result to API
     state: job.data['status'],
     target_url: `${process.env.WEBHOOK_PROXY_URL}/github/${job.data.sha}`, // FIXME replace url
     description: job.data['context'],
-    context: 'continuous-integration/ZTEST'
+    context: `continuous-integration/${process.env.USERDOMAIN}`
   });
 });
 
@@ -358,11 +368,11 @@ queue.on('complete', job => { // On job end post result to API
       hits += file.coverage.filter(x => x > 0).length;
     }
     // Load data and save
-    let records = JSON.parse(fs.readFileSync('./db.json', 'utf8'));
+    let records = JSON.parse(fs.readFileSync(dbFile, 'utf8'));
     if (!Array.isArray(records)) records = [records]; // Ensure array
     for (let o of records) { if (o.commit === job.data.sha) {o.coverage = hits / (hits + misses) * 100; break; }} // Add percentage
     // Save object
-    fs.writeFile('./db.json', JSON.stringify(records), function(err) {
+    fs.writeFile(dbFile, JSON.stringify(records), function(err) {
     if (err) { console.log(err); return; }
     // If this test was to ascertain coverage, call comparison function
     if (typeof job.data.coverage !== 'undefined') { compareCoverage(job.data); }
@@ -399,7 +409,7 @@ handler.on('push', async function (event) {
             state: 'pending',
             target_url: `${process.env.WEBHOOK_PROXY_URL}/events/${head_commit}`, // fail
             description: 'Tests running',
-            context: 'continuous-integration/ZTEST'
+            context: `continuous-integration/${process.env.USERDOMAIN}`
     });
     // Add a new test job to the queue
     queue.add({
@@ -438,7 +448,7 @@ handler.on('pull_request', async function (event) {
           state: 'pending',
           target_url: `${process.env.WEBHOOK_PROXY_URL}/events/${head_commit}`, // fail
           description: 'Tests running',
-          context: 'continuous-integration/ZTEST'
+          context: `continuous-integration/${process.env.USERDOMAIN}`
       });
     }
 
@@ -454,7 +464,7 @@ handler.on('pull_request', async function (event) {
           state: 'pending',
           target_url: `${process.env.WEBHOOK_PROXY_URL}/events/${head_commit}`, // fail
           description: 'Checking coverage',
-          context: 'coverage/ZTEST'
+          context: `coverage/${process.env.USERDOMAIN}`
     });
     // Check coverage exists
     let data = {

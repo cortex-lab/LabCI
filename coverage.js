@@ -28,7 +28,7 @@ var timestamp;
 var token = process.env.COVERALLS_TOKEN;
 
 /**
- * Formates list of classes from XML file and return object formatted for the Coveralls API.
+ * Formats list of classes from XML file and return object formatted for the Coveralls API.
  * @see {@link https://docs.coveralls.io/api-reference|Coveralls API docs}
  * @param {Array} classList - An array of class objects from the loaded XML file.
  * @param {String} path - The root path of the code repository.
@@ -41,7 +41,7 @@ var token = process.env.COVERALLS_TOKEN;
 const formatCoverage = function(classList, path, sha) {
   var job = {};
   var sourceFiles = [];
-  typeof path != "undefined" ? 'C:\\Users\\User\\' : path; // default FIXME
+  path = typeof path != "undefined" ? process.env.HOMEPATH : path; // default to home dir
   // For each class, create file object containing array of lines covered and add to sourceFile array
   classList.forEach( async c => {
     let file = {}; // Initialize file object
@@ -59,7 +59,7 @@ const formatCoverage = function(classList, path, sha) {
   });
 
   job.repo_token = token; // env secret token?
-  job.service_name = 'continuous-integration/ZTEST';
+  job.service_name = `continuous-integration/${process.env.USERDOMAIN}`;
   // The associated pull request ID of the build. Used for updating the status and/or commenting.
   job.service_pull_request = '';
   job.source_files = sourceFiles;
