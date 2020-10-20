@@ -102,7 +102,7 @@ const coverage = function(path, repo, sha, callback) {
             if (e.$.filename.startsWith('signals\\')) {modules.signals.push(e); return false;}
             if (e.$.filename.startsWith('npy-matlab\\')) {modules['npy-matlab'].push(e); return false;}
             if (e.$.filename.startsWith('wheelAnalysis\\')) {modules.wheelAnalysis.push(e); return false;}
-            else {return true};
+            else {return true}
         });
         formatCoverage(modules[repo.toLowerCase()], rigboxPath, callback);
      });

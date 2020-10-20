@@ -87,7 +87,7 @@ function loadTestRecords(id) {
   let records = obj.filter(o => id.includes(o.commit));
   // If single arg return as object, otherwise keep as array
   return (!Array.isArray(id) && records.length === 1 ? records[0] : records)
-};
+}
 
 /**
  * Compare coverage of two commits and post a failed status if coverage of head commit <= base commit.
@@ -106,7 +106,7 @@ function compareCoverage(data) {
     description = 'Failed to determine coverage as tests incomplete due to errors';
   } else if (records.length === 2 && has_coverage) {
     // Ensure first record is for head commit
-    if (records[0].commit === ids.base) { records.reverse() };
+    if (records[0].commit === ids.base) { records.reverse() }
     // Calculate coverage change
     let coverage = records[0].coverage - records[1].coverage;
     status = (coverage > 0 ? 'success' : 'failure');
@@ -119,7 +119,7 @@ function compareCoverage(data) {
        let job = queue.pile.filter(o => o.data.sha === ids[commit]);
        if (job.length > 0) { // Already on pile
           // Add coverage key to job data structure
-          if (typeof job[0].data.coverage === 'undefined') { job[0].data.coverage = ids; };
+          if (typeof job[0].data.coverage === 'undefined') { job[0].data.coverage = ids; }
        } else { // Add test to queue
           queue.add({
              skipPost: true,
@@ -133,7 +133,7 @@ function compareCoverage(data) {
        }
     }
     return;
-  };
+  }
   // Post a our coverage status
   request('POST /repos/:owner/:repo/statuses/:sha', {
           owner: 'cortex-lab',
@@ -148,7 +148,7 @@ function compareCoverage(data) {
           description: description,
           context: 'coverage/ZTEST'
   });
-};
+}
 
 // Serve the test results for requested commit id
 srv.get('/github/:id', function (req, res) {
@@ -160,7 +160,7 @@ srv.get('/github/:id', function (req, res) {
     	res.send(`Record for commit ${req.params.id} not found`);
     } else {
     	res.statusCode = 200;
-    	preText = '<html><body><pre>';
+    	preText = '<html lang="en-GB"><body><pre>';
     	postText = '</pre></body></html>';
       res.send(preText + data + postText);
 
@@ -192,8 +192,8 @@ srv.get('/coverage/:repo/:branch', async (req, res) => {
       var report = {'schemaVersion': 1, 'label': 'coverage'};
       try { // Try to load coverage record
         record = await loadTestRecords(id);
-        if (typeof record == 'undefined' || record['coverage'] == '') {throw 404}; // Test not found for commit
-        if (record['status'] === 'error') {throw 500}; // Test found for commit but errored
+        if (typeof record == 'undefined' || record['coverage'] == '') {throw 404} // Test not found for commit
+        if (record['status'] === 'error') {throw 500} // Test found for commit but errored
         report['message'] = Math.round(record['coverage']*100)/100 + '%';
         report['color'] = (record['coverage'] > 75 ? 'brightgreen' : 'red');
       } catch (err) { // No coverage value
@@ -201,7 +201,7 @@ srv.get('/coverage/:repo/:branch', async (req, res) => {
         report['color'] = 'orange';
         // Check test isn't already on the pile
         let onPile = false;
-        for (let job of queue.pile) { if (job.id === id) { onPile = true; break; } };
+        for (let job of queue.pile) { if (job.id === id) { onPile = true; break; } }
         if (!onPile) { // Add test to queue
           queue.add({
             skipPost : true,
@@ -214,7 +214,7 @@ srv.get('/coverage/:repo/:branch', async (req, res) => {
       } finally { // Send report
         res.setHeader('Content-Type', 'application/json');
         res.end(JSON.stringify(report));}
-    } else { throw 404 }; // Specified repo or branch not found
+    } else { throw 404 } // Specified repo or branch not found
   } catch (error) {
     let msg = (error === 404 ? `${req.params.repo}/${req.params.branch} not found` : error); // @fixme error thrown by request not 404
     console.error(msg)
@@ -238,7 +238,7 @@ srv.get('/status/:repo/:branch', async (req, res) => {
       var report = {'schemaVersion': 1, 'label': 'build'};
       try { // Try to load coverage record
         record = await loadTestRecords(id);
-        if (typeof record == 'undefined' || record['status'] == '') {throw 404}; // Test not found for commit
+        if (typeof record == 'undefined' || record['status'] == '') {throw 404} // Test not found for commit
         report['message'] = (record['status'] === 'success' ? 'passing' : 'failing');
         report['color'] = (record['status'] === 'success' ? 'brightgreen' : 'red');
       } catch (err) { // No coverage value
@@ -246,7 +246,7 @@ srv.get('/status/:repo/:branch', async (req, res) => {
         report['color'] = 'orange';
         // Check test isn't already on the pile
         let onPile = false;
-        for (let job of queue.pile) { if (job.id === id) { onPile = true; break; } };
+        for (let job of queue.pile) { if (job.id === id) { onPile = true; break; } }
         if (!onPile) { // Add test to queue
           queue.add({
             skipPost: true,
@@ -259,7 +259,7 @@ srv.get('/status/:repo/:branch', async (req, res) => {
       } finally { // Send report
         res.setHeader('Content-Type', 'application/json');
         res.end(JSON.stringify(report));}
-    } else { throw 404 }; // Specified repo or branch not found
+    } else { throw 404 } // Specified repo or branch not found
   } catch (error) {
     let msg = (error === 404 ? `${req.params.repo}/${req.params.branch} not found` : error); // @fixme error thrown by request not 404
     console.error(msg)
@@ -277,7 +277,7 @@ queue.process(async (job, done) => {
   var path = process.env.RIGBOX_REPO_PATH;
   if (job.data['repo'] === 'alyx-matlab' || job.data['repo'] === 'signals') {
     path = path + '\\' + job.data['repo'];}
-  if (job.data['repo'] === 'alyx') { sha = 'dev' }; // For Alyx checkout master
+  if (job.data['repo'] === 'alyx') { sha = 'dev' } // For Alyx checkout master
   // Checkout commit
   checkout = cp.execFile('checkout.bat ', [sha, path], (error, stdout, stderr) => {
      if (error) { // Send error status
@@ -323,11 +323,11 @@ queue.process(async (job, done) => {
  */
 queue.on('finish', job => { // On job end post result to API
   console.log(`Job ${job.id} complete`)
-  // If job was part of coverage test and error'd, call compare function 
+  // If job was part of coverage test and error'd, call compare function
   // (otherwise this is done by the on complete callback after writing coverage to file)
-  if (typeof job.data.coverage !== 'undefined' && job.data['status'] == 'error') { 
-    compareCoverage(job.data); 
-  };
+  if (typeof job.data.coverage !== 'undefined' && job.data['status'] == 'error') {
+    compareCoverage(job.data);
+  }
   if (job.data.skipPost === true) { return; }
   request("POST /repos/:owner/:repo/statuses/:sha", {
     owner: job.data['owner'],
@@ -440,7 +440,7 @@ handler.on('pull_request', async function (event) {
           description: 'Tests running',
           context: 'continuous-integration/ZTEST'
       });
-    };
+    }
 
     // Post a 'pending' status while we do our tests
     request('POST /repos/:owner/:repo/statuses/:sha', {
@@ -458,7 +458,7 @@ handler.on('pull_request', async function (event) {
     });
     // Check coverage exists
     let data = {
-      repo: event.payload.repository.name, 
+      repo: event.payload.repository.name,
       coverage: {head: head_commit, base: base_commit}
     };
     compareCoverage(data);
