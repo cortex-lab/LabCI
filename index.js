@@ -60,8 +60,8 @@ srv.post('/github', async (req, res, next) => {
         token = await app.getSignedJsonWebToken();
         //getPayloadRequest(req) GET /orgs/:org/installation
         const { data } = await request("GET /repos/:owner/:repo/installation", {
-            owner: "cortex-lab",
-            repo: "Rigbox",
+            owner: process.env.REPO_OWNER,
+            repo: process.env.REPO_NAME,
             headers: {
                 authorization: `Bearer ${token}`,
                 accept: "application/vnd.github.machine-man-preview+json"
@@ -124,7 +124,7 @@ function compareCoverage(data) {
           queue.add({
              skipPost: true,
              sha: ids[commit],
-             owner: 'cortex-lab', // @todo Generalize repo owner
+             owner: process.env.REPO_OWNER,
              repo: data.repo,
              status: '',
              context: '',
@@ -136,7 +136,7 @@ function compareCoverage(data) {
   }
   // Post a our coverage status
   request('POST /repos/:owner/:repo/statuses/:sha', {
-          owner: 'cortex-lab',
+          owner: process.env.REPO_OWNER,
           repo: data.repo,
           headers: {
               authorization: `token ${installationAccessToken}`,
@@ -146,7 +146,7 @@ function compareCoverage(data) {
           state: status,
           target_url: `${process.env.WEBHOOK_PROXY_URL}/events/${ids.head}`, // fail
           description: description,
-          context: 'coverage/ZTEST'
+          context: 'coverage/ZTEST'  // TODO Generalize
   });
 }
 
@@ -182,7 +182,7 @@ srv.get('/coverage/:repo/:branch', async (req, res) => {
   // Find head commit of branch
   try {
     const { data } = await request('GET /repos/:owner/:repo/git/refs/heads/:branch', {
-      owner: 'cortex-lab', // @todo Generalize repo owner
+      owner: process.env.REPO_OWNER,
       repo: req.params.repo,
       branch: req.params.branch
     });
@@ -206,7 +206,7 @@ srv.get('/coverage/:repo/:branch', async (req, res) => {
           queue.add({
             skipPost : true,
             sha: id,
-            owner: 'cortex-lab', // @todo Generalize repo owner
+            owner: process.env.REPO_OWNER,
             repo: req.params.repo,
             status: '',
             context: ''});
@@ -228,7 +228,7 @@ srv.get('/status/:repo/:branch', async (req, res) => {
   // Find head commit of branch
   try {
     const { data } = await request('GET /repos/:owner/:repo/git/refs/heads/:branch', {
-      owner: 'cortex-lab', // @todo Generalize repo owner
+      owner: process.env.REPO_OWNER,
       repo: req.params.repo,
       branch: req.params.branch
     });
@@ -251,7 +251,7 @@ srv.get('/status/:repo/:branch', async (req, res) => {
           queue.add({
             skipPost: true,
             sha: id,
-            owner: 'cortex-lab', // @todo Generalize repo owner
+            owner: process.env.REPO_OWNER,
             repo: req.params.repo,
             status: '',
             context: ''});
@@ -274,7 +274,7 @@ queue.process(async (job, done) => {
   // job.id contains id of this job.
   var sha = job.data['sha']; // Retrieve commit hash
   // If the repo is a submodule, modify path
-  var path = process.env.RIGBOX_REPO_PATH;
+  var path = process.env.REPO_PATH;
   if (job.data['repo'] === 'alyx-matlab' || job.data['repo'] === 'signals') {
     path = path + '\\' + job.data['repo'];}
   if (job.data['repo'] === 'alyx') { sha = 'dev' } // For Alyx checkout master
@@ -365,13 +365,13 @@ queue.on('complete', job => { // On job end post result to API
     fs.writeFile('./db.json', JSON.stringify(records), function(err) {
     if (err) { console.log(err); return; }
     // If this test was to ascertain coverage, call comparison function
-    if (typeof job.data.coverage !== 'undefined') { compareCoverage(job.data); };
+    if (typeof job.data.coverage !== 'undefined') { compareCoverage(job.data); }
     });
   });
 });
 
 // Let fail silently: we report error via status
-queue.on('error', err => {return;});
+queue.on('error', err => {});
 // Log handler errors
 handler.on('error', function (err) {
   console.error('Error:', err.message)
@@ -389,7 +389,7 @@ handler.on('push', async function (event) {
     let head_commit = event.payload.head_commit.id;
     // Post a 'pending' status while we do our tests
     await request('POST /repos/:owner/:repo/statuses/:sha', {
-            owner: 'cortex-lab',
+            owner: process.env.REPO_OWNER,
             repo: event.payload.repository.name,
             headers: {
                 authorization: `token ${installationAccessToken}`,
@@ -404,7 +404,7 @@ handler.on('push', async function (event) {
     // Add a new test job to the queue
     queue.add({
         sha: head_commit,
-        owner: 'cortex-lab', // @todo Generalize repo owner field
+        owner: process.env.REPO_OWNER,
         repo: event.payload.repository.name,
         status: '',
         context: ''
@@ -428,7 +428,7 @@ handler.on('pull_request', async function (event) {
     if (false) { // TODO for alyx only
       // Post a 'pending' status while we do our tests
       await request('POST /repos/:owner/:repo/statuses/:sha', {
-          owner: 'cortex-lab',
+          owner: process.env.REPO_OWNER,
           repo: event.payload.repository.name,
           headers: {
               authorization: `token ${installationAccessToken}`,
@@ -444,7 +444,7 @@ handler.on('pull_request', async function (event) {
 
     // Post a 'pending' status while we do our tests
     request('POST /repos/:owner/:repo/statuses/:sha', {
-          owner: 'cortex-lab',
+          owner: process.env.REPO_OWNER,
           repo: event.payload.repository.name,
           headers: {
               authorization: `token ${installationAccessToken}`,
