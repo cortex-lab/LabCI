@@ -21,11 +21,15 @@ Make sure runAllTests.m is on your MATLAB paths
 
 ## Running the tests
 
-TODO
+```
+mocha ./test
+```
 
 ## Deployment
 
-To work properly you need to create install a Github app on your target repository and download the private key.  Update your .env file like so:
+To work properly you need to create install a 
+[Github app](https://docs.github.com/en/free-pro-team@latest/developers/apps/creating-a-github-app)
+on your target repository and download the private key.  Update your .env file like so:
 
 ```
 GITHUB_PRIVATE_KEY=path\to\private-key.pem

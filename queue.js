@@ -23,8 +23,8 @@ class Queue extends EventEmitter {
   /**
    * Create queue to add jobs to.
    * @param {string} path - Path to saved queue object (TODO).
-   * @param {Array} pile - Array of queued job objects.
-   * @param (Function) _process - Handle to job process function.
+   * @property {Array} pile - Array of queued job objects.
+   * @property (Function) _process - Handle to job process function.
    * @event module:Queue~finish
    * @event module:Queue~error
    * @event module:Queue~complete
@@ -46,7 +46,10 @@ class Queue extends EventEmitter {
    * @param {Object} data - Data object to be stored in {@link Job}.
    */
   add(data) {
-    var id = this.pile.length + 1; // generate job id
+    // generate 16 digit job id
+    let d = Date.now().toString()
+    let r = Math.floor(Math.random() * 1000).toString()
+    let id = Number(r.padStart(3, '0').concat(d))
     this.pile.push(new Job(id, data)); // add to bottom of pile
     console.log('Job added (' + this.pile.length + ' on pile)')
     this.next(); // Start next job if idle

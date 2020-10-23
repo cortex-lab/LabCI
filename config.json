@@ -1,4 +1,4 @@
 {
   "timeout": 480000,
-  "program": "matlab"
+  "program": "python"
 }

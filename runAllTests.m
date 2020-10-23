@@ -10,7 +10,7 @@ if nargin < 2; repo = 'rigbox'; end
 if nargin < 1; id = []; end
 try
   %% Initialize enviroment
-  dbPath = 'C:\Users\Experiment\db.json';
+  dbPath = 'C:\Users\Experiment\db.json'; % TODO Load from config file
   fprintf('Running tests\n')
   fprintf('Repo = %s, sha = %s\n', repo, id)
   origDir = pwd;

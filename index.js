@@ -8,11 +8,12 @@
  * @requires module:express
  * @requires module:localtunnel
  * @requires module:github-webhook-handler
+ * @requires module:shelljs
  * @todo save auxiliary configuration into a separate config file
  * @todo add abort option for when new commits added
+ * @todo rename context to description and use context to track posts
  */
-import * as path from 'path';
-
+const path = require('path');
 const fs = require('fs');
 const express = require('express')
 const srv = express();
@@ -22,6 +23,7 @@ const Coverage = require('./coverage');
 const { App } = require('@octokit/app');
 const { request } = require("@octokit/request");
 const localtunnel = require('localtunnel');
+const shell = require('shelljs');
 
 const id = process.env.GITHUB_APP_IDENTIFIER;
 const secret = process.env.GITHUB_WEBHOOK_SECRET;
@@ -85,12 +87,89 @@ srv.post('/github', async (req, res, next) => {
     }
 });
 
+// Serve installation token
+// github?code=91f5c8c62e2eb1e77091&installation_id=12538815&setup_action=install
+srv.get('/github/code=:code&installation_id=:id&setup_action=:action', async (req, res, next) => {
+  // contains the installation id necessary to authenticate as an installation
+  const installationId = req.params.installation_id;
+  console.log(`Request for ${req.params.action} for ${installationId}`)
+    try {
+        token = await app.getSignedJsonWebToken();
+        //getPayloadRequest(req) GET /orgs/:org/installation
+        const { data } = await request("GET /repos/:owner/:repo/installation", {
+            owner: process.env.REPO_OWNER,
+            repo: process.env.REPO_NAME,
+            headers: {
+                authorization: `Bearer ${token}`,
+                accept: "application/vnd.github.machine-man-preview+json"
+            }
+        });
+        installationAccessToken = await app.getInstallationAccessToken({ installationId });
+        handler(req, res, () => res.end('ok'))
+        //next();
+    } catch (error) {
+    next(error);
+    }
+  });
+
+
+/**
+ * Checkout git.
+ * @param {string} repo - Path to the repository.
+ * @param {string} id - Commit ID or branch name.
+ * TODO WIP
+ */
+function checkout_commit(repo, id) {
+  if (!shell.which('git')) {
+    shell.echo('Sorry, this script requires git');
+    shell.exit(1);
+  }
+  shell.pushd(repo);
+  if (shell.exec('git reset --hard HEAD').code !== 0) {
+    shell.echo('Error: resetting failed');
+    shell.popd();
+    shell.exit(1);
+  }
+  shell.popd();
+}
+
 /**
  * Load MATLAB test results from ci-db.json file.
  * @param {string, array} id - Function to call with job and done callback when.
  */
 function loadTestRecords(id) {
+  // FIXME Check file exists, catch JSON parse error
+  if(!fs.existsSync(dbFile)) {
+    console.log('Records file not found');
+    return null
+  }
   let obj = JSON.parse(fs.readFileSync(dbFile, 'utf8'));
+  if (!Array.isArray(obj)) obj = [obj]; // Ensure array
+  let records = obj.filter(o => id.includes(o.commit));
+  // If single arg return as object, otherwise keep as array
+  return (!Array.isArray(id) && records.length === 1 ? records[0] : records)
+}
+
+/**
+ * Load MATLAB test results from ci-db.json file asynchronously
+ * @param {string, array} id - Function to call with job and done callback when.
+ */
+function loadTestRecordsAsync(id) {
+  cb = fs.readFile(dbFile, 'utf8', function (err, data) {
+  if (err && err.code === 'ENOENT') {
+    console.log('Records file not found');
+    return []
+  } else {
+    try {
+      let obj = JSON.parse(data)
+    } catch(e) {
+      console.error('Failed to decode JSON file records');
+    }
+
+  }
+  console.log(data);
+});
+  let obj = JSON.parse();
   if (!Array.isArray(obj)) obj = [obj]; // Ensure array
   let records = obj.filter(o => id.includes(o.commit));
   // If single arg return as object, otherwise keep as array
@@ -104,7 +183,7 @@ function loadTestRecords(id) {
 function compareCoverage(data) {
   let ids = data.coverage;
   let status, description;
-  let records = loadTestRecords(Object.values(ids));
+  let records = loadTestRecords(Object.values(ids));  // TODO Make asynchronous
   // Filter duplicates just in case
   records = records.filter((set => o => !set.has(o.commit) && set.add(o.commit))(new Set));
   let has_coverage = records.every(o => (typeof o.coverage !== 'undefined' && o.coverage > 0));
@@ -153,7 +232,7 @@ function compareCoverage(data) {
           },
           sha: ids.head,
           state: status,
-          target_url: `${process.env.WEBHOOK_PROXY_URL}/events/${ids.head}`, // fail
+          target_url: `${process.env.WEBHOOK_PROXY_URL}/coverage/${data.repo}/${ids.head}`, // fail
           description: description,
           context: `coverage/${process.env.USERDOMAIN}`
   });
@@ -175,6 +254,7 @@ srv.get('/github/:id', function (req, res) {
 
     }
   });
+
   /*
   const record = loadTestRecords(req.params.id);
   if (typeof record == 'undefined') {
@@ -246,7 +326,7 @@ srv.get('/status/:repo/:branch', async (req, res) => {
       let id = data.object.sha;
       var report = {'schemaVersion': 1, 'label': 'build'};
       try { // Try to load coverage record
-        record = await loadTestRecords(id);
+        var record = await loadTestRecords(id);
         if (typeof record == 'undefined' || record['status'] == '') {throw 404} // Test not found for commit
         report['message'] = (record['status'] === 'success' ? 'passing' : 'failing');
         report['color'] = (record['status'] === 'success' ? 'brightgreen' : 'red');
@@ -283,12 +363,12 @@ queue.process(async (job, done) => {
   // job.id contains id of this job.
   var sha = job.data['sha']; // Retrieve commit hash
   // If the repo is a submodule, modify path
-  var path = process.env.REPO_PATH;
+  var repo_path = process.env.REPO_PATH;
   if (job.data['repo'] === 'alyx-matlab' || job.data['repo'] === 'signals') {
-    path = path + path.sep + job.data['repo'];}
+    repo_path = repo_path + path.sep + job.data['repo'];}
   if (job.data['repo'] === 'alyx') { sha = 'dev' } // For Alyx checkout master
-  // Checkout commit
-  checkout = cp.execFile('checkout.bat ', [sha, path], (error, stdout, stderr) => {
+  // Checkout commit  TODO Use shelljs here
+  var checkout = cp.execFile('checkout_ibllib_test.bat ', [sha, repo_path], (error, stdout, stderr) => {
      if (error) { // Send error status
        console.error('Checkout failed: ', stderr);
        job.data['status'] = 'error';
@@ -297,32 +377,40 @@ queue.process(async (job, done) => {
        return;
      }
      console.log(stdout)
-     // Go ahead with MATLAB tests
-     var runTests;
-     const timer = setTimeout(function() {
-      	  console.log('Max test time exceeded')
-      	  job.data['status'] = 'error';
-          job.data['context'] = `Tests stalled after ~${(timeout / 60000).toFixed(0)} min`;
-          runTests.kill();
-      	  done(new Error('Job stalled')) }, timeout);
-     let args = ['-r', `runAllTests (""${job.data.sha}"",""${job.data.repo}"")`,
-       '-wait', '-log', '-nosplash', '-logfile', `.\\src\\matlab_tests-${job.data.sha}.log`];  // TODO Generalize
-     let program = config.program || 'matlab'
-     runTests = cp.execFile(program, args, (error, stdout, stderr) => {
-       clearTimeout(timer);
-       if (error) { // Send error status
-         // Isolate error from log
-         let errStr = stderr.split(/\r?\n/).filter((str) =>
-           {return str.startsWith('Error in \'')}).join(';');
-         job.data['status'] = 'error';
-         job.data['context'] = errStr;
-         done(error); // Propagate
-       } else {
-         const rec = loadTestRecords(job.data['sha']); // Load test result from json log
-         job.data['status'] = rec['status'];
-         job.data['context'] = rec['description'];
-         done();
-       }
+    // Go ahead with MATLAB tests
+    var runTests;
+    const timer = setTimeout(function() {
+      console.log('Max test time exceeded')
+      job.data['status'] = 'error';
+      job.data['context'] = `Tests stalled after ~${(timeout / 60000).toFixed(0)} min`;
+      runTests.kill();
+      done(new Error('Job stalled'))
+    }, timeout);
+     // let args = ['-r', `runAllTests (""${job.data.sha}"",""${job.data.repo}"")`,
+     //   '-wait', '-log', '-nosplash', '-logfile', `.\\src\\matlab_tests-${job.data.sha}.log`];  // TODO Generalize
+    // Python // FIXME Fails silently if runAllTests doesn't exist
+    let program = config.program || 'matlab'
+    // FIXME Node would need to be called with iblenv
+    let testFunction = path.resolve(__dirname, 'runAllTests.' + ((program === 'matlab')? 'm':'py'))
+    if(!fs.existsSync(testFunction)) { done(Error (`"${testFunction}" not found`)) }
+    let args = [testFunction, '-c', job.data.sha, '-r', job.data.repo,
+                '--logfile', `integration_tests-${job.data.sha}.log`];  // TODO Generalize
+    runTests = cp.execFile(program, args, (error, stdout, stderr) => {
+    clearTimeout(timer);
+    if (error) { // Send error status
+      // Isolate error from log
+      let errStr = stderr.split(/\r?\n/).filter((str) =>
+        {return str.startsWith('Error in \'')}).join(';');  // TODO Generalize
+        job.data['status'] = 'error';
+        job.data['context'] = errStr;
+        done(error); // Propagate
+      } else {
+        const rec = loadTestRecords(job.data['sha']); // Load test result from json log
+        //if (rec['coverage']) {job.data['coverage'] = rec['coverage']}  // FIXME this holds ids, not coverage
+        job.data['status'] = rec['status'];
+        job.data['context'] = rec['description'];
+        done();
+      }
      });
   });
 });
@@ -359,6 +447,11 @@ queue.on('finish', job => { // On job end post result to API
  * @todo Save full coverage object for future inspection
  */
 queue.on('complete', job => { // On job end post result to API
+  if (config.program === 'python') {
+    compareCoverage(job.data);  // Coverage already set; compare and return
+    return
+  }
+  // Otherwise load test coverage from the XML (essential for MATLAB)
   console.log('Updating coverage for job #' + job.id)
   Coverage('./CoverageResults.xml', job.data.repo, job.data.sha, obj => {
     // Digest and save percentage coverage
@@ -475,7 +568,7 @@ handler.on('pull_request', async function (event) {
   } catch (error) {console.log(error)}
 });
 
-// Start the server in the port 3000
+// Start the server in the port 3000 // TODO Add to config
 var server = srv.listen(3000, function () {
    var host = server.address().address
    var port = server.address().port
@@ -483,7 +576,7 @@ var server = srv.listen(3000, function () {
    console.log("Handler listening at http://%s:%s", host, port)
 });
 
-// Start tunnel
+// Start tunnel // TODO Add dry run flag for testing
 openTunnel();
 
 // Log any unhandled errors

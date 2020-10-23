@@ -82,6 +82,7 @@ const formatCoverage = function(classList, path, sha) {
 const coverage = function(path, repo, sha, callback) {
   cb = callback; // @fixme Making callback global feels hacky
   fs.readFile(path, function(err, data) { // Read in XML file
+    // @fixme deal with file not found errors
      parser.parseString(data, function (err, result) { // Parse XML
         const rigboxPath = result.coverage.sources[0].source[0]; // Extract root code path
         assert(rigboxPath.endsWith('Rigbox\\'), 'Incorrect source code repository')
