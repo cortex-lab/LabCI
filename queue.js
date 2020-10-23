@@ -1,4 +1,5 @@
 var EventEmitter = require('events').EventEmitter
+const assert = require('assert')
 
 /**
  * Queue module allows one to add tasks to a queue which are processed sequentially as FILO.
@@ -19,7 +20,7 @@ var EventEmitter = require('events').EventEmitter
 
 /** Class representing a Queue API. */
 class Queue extends EventEmitter {
-
+  pile = [];
   /**
    * Create queue to add jobs to.
    * @param {string} path - Path to saved queue object (TODO).
@@ -31,10 +32,10 @@ class Queue extends EventEmitter {
    * @listens module:Queue~event:finish
    * @see {@link Job}
    */
+
   constructor(timeout, path) {
     super();
     // Initialize properties
-    this.pile = [];
     this.path = typeof path == 'undefined' ? './queue.json' : path;  //TODO Implement
     this.on('finish', function () { // Each time a job finishes...
       this.pile.shift(); // take off pile
@@ -68,7 +69,6 @@ class Queue extends EventEmitter {
   /**
    * Create callback to be triggered when process function completes.
    * @param {Object} job - {@link Job} object.
-   * @todo Change 'incomplete' => 'error'
    * @returns {function} 'done' callback to be called by process function
    */
   createDoneCallback(job) {
@@ -98,7 +98,9 @@ class Queue extends EventEmitter {
 
 /** Class representing a job in the Queue. */
 class Job extends EventEmitter {
-
+  id;
+  data;
+  running;
   /**
    * Create a job object with associated data.
    * @param {number} id - Job ID (unique in current Queue pile).

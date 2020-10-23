@@ -12,6 +12,7 @@
  * @todo save auxiliary configuration into a separate config file
  * @todo add abort option for when new commits added
  * @todo rename context to description and use context to track posts
+ * @todo fix intendations
  */
 const path = require('path');
 const fs = require('fs');
@@ -22,33 +23,28 @@ const queue = new (require('./queue.js'))()
 const Coverage = require('./coverage');
 const { App } = require('@octokit/app');
 const { request } = require("@octokit/request");
-const localtunnel = require('localtunnel');
 const shell = require('shelljs');
+const { openTunnel, ensureArray, loadTestRecords, compareCoverage } = require('./lib');
+const config = require("./config/config").settings;
 
-const id = process.env.GITHUB_APP_IDENTIFIER;
+var token;  // Access token from JWT
+var installationAccessToken;  // TODO Somehow store in env for other modules to access
 const secret = process.env.GITHUB_WEBHOOK_SECRET;
-const appdata = process.env.APPDATA || process.env.HOMEPATH;
-const dbFile = path.join(appdata, '.ci-db.json')  // cache of test results
-const config = require('./config.json');
-const timeout = config.timeout || 8*60000
+const timeout = config.timeout || 8*60000;
+const supportedEvents = ['push', 'pull_request'];  // events the ci can handle
+const maxN = 140;  // The maximum n chars of the description
 
-// Configure a secure tunnel
-const openTunnel = async () => {
-  let args = {
-    port: 3000,
- 	 subdomain: process.env.TUNNEL_SUBDOMAIN,
-	 host: process.env.TUNNEL_HOST
-  };
-  const tunnel = await localtunnel(args);
-  console.log(`Tunnel open on: ${tunnel.url}`);
-  tunnel.on('close', () => {console.log('Reconnecting'); openTunnel(); });
-  tunnel.on('error', (e) => { console.error(e) });
+// Check all config events are supported  // TODO Add test for this
+const events = Object.keys(config.events);
+if (events.some(evt => {return supportedEvents.indexOf(evt) === -1 })) {
+  let errStr = 'One or more events in config not supported. ' +
+               `The following events are supported: ${supportedEvents.join(', ')}`;
+  throw ReferenceError(errStr)
 }
 
 // Create handler to verify posts signed with webhook secret.  Content type must be application/json
-var createHandler = require('github-webhook-handler');
-var handler = createHandler({ path: '/github', secret: process.env.GITHUB_WEBHOOK_SECRET });
-var installationAccessToken;
+const createHandler = require('github-webhook-handler');
+const handler = createHandler({ path: '/github', secret: process.env.GITHUB_WEBHOOK_SECRET, events: supportedEvents});
 
 const app = new App({
     id: process.env.GITHUB_APP_IDENTIFIER,
@@ -56,16 +52,19 @@ const app = new App({
     webhooks: {secret}
 });
 // Authenticate app by exchanging signed JWT for access token
-var token = app.getSignedJsonWebToken();
+token = app.getSignedJsonWebToken();
 
 /**
- * Callback to deal with POST requests to /github endpoint
+ * Callback to deal with POST requests from /github endpoint, authenticates as app and passes on
+ * request to handler.
  * @param {Object} req - Request object.
  * @param {Object} res - Response object.
  * @param {Function} next - Handle to next callback in stack.
  */
 srv.post('/github', async (req, res, next) => {
     console.log('Post received')
+    let id = req.header('x-github-hook-installation-target-id');
+    if (id != process.env.GITHUB_APP_IDENTIFIER) { next() }  // Move on
     try {
         token = await app.getSignedJsonWebToken();
         //getPayloadRequest(req) GET /orgs/:org/installation
@@ -81,14 +80,15 @@ srv.post('/github', async (req, res, next) => {
         const installationId = data.id;
         installationAccessToken = await app.getInstallationAccessToken({ installationId });
         handler(req, res, () => res.end('ok'))
-        //next();
+        //next();  // pass on
     } catch (error) {
     next(error);
     }
 });
 
 // Serve installation token
-// github?code=91f5c8c62e2eb1e77091&installation_id=12538815&setup_action=install
+// TODO Maybe only occurs when apps are public?  Otherwise post used
+// github?code=...&installation_id=...&setup_action=install
 srv.get('/github/code=:code&installation_id=:id&setup_action=:action', async (req, res, next) => {
   // contains the installation id necessary to authenticate as an installation
   const installationId = req.params.installation_id;
@@ -134,28 +134,12 @@ function checkout_commit(repo, id) {
 }
 
 /**
- * Load MATLAB test results from ci-db.json file.
+ * Load MATLAB test results from ci-.db.json file asynchronously
  * @param {string, array} id - Function to call with job and done callback when.
- */
-function loadTestRecords(id) {
-  // FIXME Check file exists, catch JSON parse error
-  if(!fs.existsSync(dbFile)) {
-    console.log('Records file not found');
-    return null
-  }
-  let obj = JSON.parse(fs.readFileSync(dbFile, 'utf8'));
-  if (!Array.isArray(obj)) obj = [obj]; // Ensure array
-  let records = obj.filter(o => id.includes(o.commit));
-  // If single arg return as object, otherwise keep as array
-  return (!Array.isArray(id) && records.length === 1 ? records[0] : records)
-}
-
-/**
- * Load MATLAB test results from ci-db.json file asynchronously
- * @param {string, array} id - Function to call with job and done callback when.
+ * @todo WIP async file reads
  */
 function loadTestRecordsAsync(id) {
-  cb = fs.readFile(dbFile, 'utf8', function (err, data) {
+  cb = fs.readFile(config.dbFile, 'utf8', function (err, data) {
   if (err && err.code === 'ENOENT') {
     console.log('Records file not found');
     return []
@@ -169,7 +153,7 @@ function loadTestRecordsAsync(id) {
   }
   console.log(data);
 });
-  let obj = JSON.parse();
+  let obj = JSON.parse(data);
   if (!Array.isArray(obj)) obj = [obj]; // Ensure array
   let records = obj.filter(o => id.includes(o.commit));
   // If single arg return as object, otherwise keep as array
@@ -177,66 +161,46 @@ function loadTestRecordsAsync(id) {
 }
 
 /**
- * Compare coverage of two commits and post a failed status if coverage of head commit <= base commit.
- * @param {object} data - job data object with coverage field holding head and base commit ids.
+ * Function to update the coverage of a job by parsing the XML file.
+ * @param {Object} job - Job object which has finished being processed.
+ * @todo Save full coverage object for future inspection
  */
-function compareCoverage(data) {
-  let ids = data.coverage;
-  let status, description;
-  let records = loadTestRecords(Object.values(ids));  // TODO Make asynchronous
-  // Filter duplicates just in case
-  records = records.filter((set => o => !set.has(o.commit) && set.add(o.commit))(new Set));
-  let has_coverage = records.every(o => (typeof o.coverage !== 'undefined' && o.coverage > 0));
-  // Check if any errored or failed to update coverage
-  if (records.filter(o => o.status === 'error').length > 0) {
-    status = 'failure';
-    description = 'Failed to determine coverage as tests incomplete due to errors';
-  } else if (records.length === 2 && has_coverage) {
-    // Ensure first record is for head commit
-    if (records[0].commit === ids.base) { records.reverse() }
-    // Calculate coverage change
-    let coverage = records[0].coverage - records[1].coverage;
-    status = (coverage > 0 ? 'success' : 'failure');
-    description = 'Coverage ' + (coverage > 0 ? 'increased' : 'decreased')
-                              + ' from ' + Math.round(records[1].coverage*100)/100 + '%'
-                              + ' to ' + Math.round(records[0].coverage*100)/100 + '%';
-    // TODO Maybe remove test from pile if we already have it?
-  } else {
-    for (let commit in ids) {
-       // Check test isn't already on the pile
-       let job = queue.pile.filter(o => o.data.sha === ids[commit]);
-       if (job.length > 0) { // Already on pile
-          // Add coverage key to job data structure
-          if (typeof job[0].data.coverage === 'undefined') { job[0].data.coverage = ids; }
-       } else { // Add test to queue
-          queue.add({
-             skipPost: true,
-             sha: ids[commit],
-             owner: process.env.REPO_OWNER,
-             repo: data.repo,
-             status: '',
-             context: '',
-             coverage: ids // Note cf commit
-          });
-       }
-    }
+function computeCoverage(job) {
+  if (typeof job.data.coverage !== 'undefined' && job.data.coverage) {
+    console.log('Coverage already computed for job #' + job.id)
     return;
   }
-  // Post a our coverage status
-  request('POST /repos/:owner/:repo/statuses/:sha', {
-          owner: process.env.REPO_OWNER,
-          repo: data.repo,
-          headers: {
-              authorization: `token ${installationAccessToken}`,
-              accept: 'application/vnd.github.machine-man-preview+json'
-          },
-          sha: ids.head,
-          state: status,
-          target_url: `${process.env.WEBHOOK_PROXY_URL}/coverage/${data.repo}/${ids.head}`, // fail
-          description: description,
-          context: `coverage/${process.env.USERDOMAIN}`
+
+  console.log('Updating coverage for job #' + job.id)
+  let xmlPath = path.join(config.dataPath, 'reports', job.data.sha, 'CoverageResults.xml')
+  Coverage(xmlPath, job.data.repo, job.data.sha, obj => {
+    // Digest and save percentage coverage
+    let misses = 0, hits = 0;
+    for (let file of obj.source_files) {
+      misses += file.coverage.filter(x => x === 0).length;
+      hits += file.coverage.filter(x => x > 0).length;
+    }
+    const coverage = hits / (hits + misses) * 100  // As percentage
+    job.data.coverage = coverage;  // Add to job
+    // Load data and save  TODO Move to saveTestRecord(s) function in lib
+    let records = JSON.parse(fs.readFileSync(config.dbFile, 'utf8'));
+    records = ensureArray(records); // Ensure array
+    for (let o of records) { if (o.commit === job.data.sha) {o.coverage = coverage; break; }}
+    // Save object
+    fs.writeFile(config.dbFile, JSON.stringify(records), function(err) {
+    if (err) {
+      job.status = 'error'
+      job.description = 'Failed to compute coverage from XML'
+      console.log(err);
+      return;
+    }
+    // If this test was to ascertain coverage, call comparison function
+    if ((job.data.context || '').startsWith('coverage')) { compareCoverage(job); }
+    });
   });
 }
+
+///////////////////// GET EVENTS /////////////////////
 
 // Serve the test results for requested commit id
 srv.get('/github/:id', function (req, res) {
@@ -281,7 +245,7 @@ srv.get('/coverage/:repo/:branch', async (req, res) => {
       var report = {'schemaVersion': 1, 'label': 'coverage'};
       try { // Try to load coverage record
         let record = await loadTestRecords(id);
-        if (typeof record == 'undefined' || record['coverage'] == '') {throw 404} // Test not found for commit
+        if (typeof record == 'undefined' || !record['coverage']) {throw 404} // Test not found for commit
         if (record['status'] === 'error') {throw 500} // Test found for commit but errored
         report['message'] = Math.round(record['coverage']*100)/100 + '%';
         report['color'] = (record['coverage'] > 75 ? 'brightgreen' : 'red');
@@ -357,13 +321,49 @@ srv.get('/status/:repo/:branch', async (req, res) => {
   }
 });
 
-// Define how to process tests.  Here we checkout git and call MATLAB
+///////////////////// QUEUE EVENTS /////////////////////
+
+/**
+ * Define how to process tests.  Here we checkout git and call MATLAB.
+ * @param {Object} job - Job object which is being processed.
+ * @param {Function} done - Callback on complete.
+ */
 queue.process(async (job, done) => {
   // job.data contains the custom data passed when the job was created
   // job.id contains id of this job.
-  var sha = job.data['sha']; // Retrieve commit hash
+
+  // To avoid running our tests twice, set the force flag to false for any other jobs in pile that
+  // have the same commit ID
+  var repo_path;
+  var sha = job.data.sha;
+  let others = queue.pile.filter(o => (o.data.sha === sha) && (o.id !== job.id));
+  for (let other of others) { other.data.force = false }
+  // If lazy, load records to check whether we already have the results saved
+  if (job.data.force === false) {  // NB: Strict equality; force by default
+    var rec = loadTestRecords(job.data['sha']);  // Load test result from json log
+    if (rec) {
+      rec = Array.isArray(rec) ? rec.pop() : rec;  // in case of duplicates, take last
+      job.data['status'] = rec['status'];
+      job.data['description'] = rec['description'];
+      job.data['coverage'] = ('coverage' in rec) ? rec['coverage'] : null;
+      // If this is a coverage job...
+      if ((job.data['context'] || '').startsWith('coverage')) {
+        // Either compute coverage from XML if required, otherwise compare coverage
+        if (job.data['coverage']) {
+          computeCoverage(job)
+        } else {
+          compareCoverage(job)
+        }
+      }
+      done() // No need to run tests; skip to complete routine
+      return;
+    }
+  }
+
+  // Go ahead and prepare to run tests
+  sha = job.data['sha']; // Retrieve commit hash
   // If the repo is a submodule, modify path
-  var repo_path = process.env.REPO_PATH;
+  repo_path = process.env.REPO_PATH;  // FIXME generalize
   if (job.data['repo'] === 'alyx-matlab' || job.data['repo'] === 'signals') {
     repo_path = repo_path + path.sep + job.data['repo'];}
   if (job.data['repo'] === 'alyx') { sha = 'dev' } // For Alyx checkout master
@@ -372,7 +372,7 @@ queue.process(async (job, done) => {
      if (error) { // Send error status
        console.error('Checkout failed: ', stderr);
        job.data['status'] = 'error';
-       job.data['context'] = 'Failed to checkout code: ' + stderr;
+       job.data['description'] = 'Failed to checkout code: ' + stderr.substring(0, maxN);
        done(error); // Propagate error
        return;
      }
@@ -382,7 +382,7 @@ queue.process(async (job, done) => {
     const timer = setTimeout(function() {
       console.log('Max test time exceeded')
       job.data['status'] = 'error';
-      job.data['context'] = `Tests stalled after ~${(timeout / 60000).toFixed(0)} min`;
+      job.data['description'] = `Tests stalled after ~${(timeout / 60000).toFixed(0)} min`;
       runTests.kill();
       done(new Error('Job stalled'))
     }, timeout);
@@ -393,22 +393,31 @@ queue.process(async (job, done) => {
     // FIXME Node would need to be called with iblenv
     let testFunction = path.resolve(__dirname, 'runAllTests.' + ((program === 'matlab')? 'm':'py'))
     if(!fs.existsSync(testFunction)) { done(Error (`"${testFunction}" not found`)) }
-    let args = [testFunction, '-c', job.data.sha, '-r', job.data.repo,
-                '--logfile', `integration_tests-${job.data.sha}.log`];  // TODO Generalize
+    let args = [testFunction, '-c', job.data.sha, '-r', process.env.REPO_PATH, '--logdir', `${config.dataPath}`];  // TODO
+    // Generalize
     runTests = cp.execFile(program, args, (error, stdout, stderr) => {
     clearTimeout(timer);
     if (error) { // Send error status
-      // Isolate error from log
-      let errStr = stderr.split(/\r?\n/).filter((str) =>
-        {return str.startsWith('Error in \'')}).join(';');  // TODO Generalize
-        job.data['status'] = 'error';
-        job.data['context'] = errStr;
+      job.data['status'] = 'error';
+      // Isolate error from log (NB: Max length  // TODO Generalize
+      if (program === 'python') {
+        // For Python, cat from the lost line that doesn't begin with whitespace
+        let errArr = stderr.split(/\r?\n/);s
+        let idx = errArr.reverse().findIndex(v => {return v.match('^\\S')});
+        job.data['description'] = stderr.split(/\r?\n/).slice(-idx-1).join(';').substring(0, maxN);
+      } else {
+        // For MATLAB return the line that betgins with 'Error'
+        let fn = (str) => { return str.startsWith('Error in \'') };
+        job.data['description'] = stderr.split(/\r?\n/).filter(fn).join(';').substring(0, maxN);
+      }
         done(error); // Propagate
       } else {
         const rec = loadTestRecords(job.data['sha']); // Load test result from json log
-        //if (rec['coverage']) {job.data['coverage'] = rec['coverage']}  // FIXME this holds ids, not coverage
+        // FIXME check status valid, i.e. error, passed or failed
         job.data['status'] = rec['status'];
-        job.data['context'] = rec['description'];
+        job.data['description'] = rec['description'];
+        job.data['coverage'] = ('coverage' in rec)? rec['coverage'] : null;
+        if (!job.data['coverage']) { computeCoverage(job) }  // Attempt to load from XML
         done();
       }
      });
@@ -421,11 +430,6 @@ queue.process(async (job, done) => {
  */
 queue.on('finish', job => { // On job end post result to API
   console.log(`Job ${job.id} complete`)
-  // If job was part of coverage test and error'd, call compare function
-  // (otherwise this is done by the on complete callback after writing coverage to file)
-  if (typeof job.data.coverage !== 'undefined' && job.data['status'] === 'error') {
-    compareCoverage(job.data);
-  }
   if (job.data.skipPost === true) { return; }
   request("POST /repos/:owner/:repo/statuses/:sha", {
     owner: job.data['owner'],
@@ -435,10 +439,17 @@ queue.on('finish', job => { // On job end post result to API
         accept: "application/vnd.github.machine-man-preview+json"},
     sha: job.data['sha'],
     state: job.data['status'],
-    target_url: `${process.env.WEBHOOK_PROXY_URL}/github/${job.data.sha}`, // FIXME replace url
-    description: job.data['context'],
-    context: `continuous-integration/${process.env.USERDOMAIN}`
-  });
+    target_url: `${process.env.WEBHOOK_PROXY_URL}/events/${job.data.sha}`, // FIXME replace url
+    description: job.data['description'],
+    context: job.data['context']
+  }).then(  // Log outcome
+      () => { console.log(`Updated status to "${job.data.status}" for ${job.data.context}`); },
+      (err) => {
+          console.log(`Failed to update status to "${job.data.status}" for ${job.data.context}`);
+          console.log(err);
+      }
+  );
+
 });
 
 /**
@@ -447,30 +458,10 @@ queue.on('finish', job => { // On job end post result to API
  * @todo Save full coverage object for future inspection
  */
 queue.on('complete', job => { // On job end post result to API
-  if (config.program === 'python') {
-    compareCoverage(job.data);  // Coverage already set; compare and return
-    return
-  }
-  // Otherwise load test coverage from the XML (essential for MATLAB)
-  console.log('Updating coverage for job #' + job.id)
-  Coverage('./CoverageResults.xml', job.data.repo, job.data.sha, obj => {
-    // Digest and save percentage coverage
-    let misses = 0, hits = 0;
-    for (let file of obj.source_files) {
-      misses += file.coverage.filter(x => x === 0).length;
-      hits += file.coverage.filter(x => x > 0).length;
-    }
-    // Load data and save
-    let records = JSON.parse(fs.readFileSync(dbFile, 'utf8'));
-    if (!Array.isArray(records)) records = [records]; // Ensure array
-    for (let o of records) { if (o.commit === job.data.sha) {o.coverage = hits / (hits + misses) * 100; break; }} // Add percentage
-    // Save object
-    fs.writeFile(dbFile, JSON.stringify(records), function(err) {
-    if (err) { console.log(err); return; }
-    // If this test was to ascertain coverage, call comparison function
-    if (typeof job.data.coverage !== 'undefined') { compareCoverage(job.data); }
-    });
-  });
+  // if (config.program === 'python') {
+  //   compareCoverage(job.data);  // Coverage already set; compare and return
+  //   return
+  // }
 });
 
 // Let fail silently: we report error via status
@@ -480,98 +471,137 @@ handler.on('error', function (err) {
   console.error('Error:', err.message)
 })
 
-// Handle push events
-handler.on('push', async function (event) {
-  // Log the event
-  console.log('Received a push event for %s to %s',
-    event.payload.repository.name,
-    event.payload.ref)
-  // Ignore documentation branches
-  if (event.payload.ref.endsWith('documentation')) { return; }
-  try { // Run tests for head commit only
-    let head_commit = event.payload.head_commit.id;
-    // Post a 'pending' status while we do our tests
-    await request('POST /repos/:owner/:repo/statuses/:sha', {
-            owner: process.env.REPO_OWNER,
-            repo: event.payload.repository.name,
-            headers: {
-                authorization: `token ${installationAccessToken}`,
-                accept: 'application/vnd.github.machine-man-preview+json'
-            },
-            sha: head_commit,
-            state: 'pending',
-            target_url: `${process.env.WEBHOOK_PROXY_URL}/events/${head_commit}`, // fail
-            description: 'Tests running',
-            context: `continuous-integration/${process.env.USERDOMAIN}`
-    });
-    // Add a new test job to the queue
-    queue.add({
-        sha: head_commit,
-        owner: process.env.REPO_OWNER,
-        repo: event.payload.repository.name,
-        status: '',
-        context: ''
-    });
-  } catch (error) {console.log(error)}
-});
+///////////////////// GITHUB EVENTS /////////////////////
+/**
+ * Callback triggered when a GitHub event occurs.  Here we deal with all events, adding jobs to the
+ * Queue as needed.  If an event is not specified in the config, the callback will return ok but do
+ * nothing.
+ * Payload reference https://developer.github.com/webhooks/event-payloads/
+ * @param {Object} event - The GitHub event object.
+ * @todo Save full coverage object for future inspection
+ * @todo add support for ignore list for specific actions
+ */
+async function eventCallback (event) {
+  var repoName, ref, head_sha;  // repository name, ref (i.e. branch name) and head commit
+  var base_sha;  // the previous commit or base head commit, used to compare coverage
+  var description;  // the initial context description
+  const eventType = event.event;  // 'push' or 'pull_request'
 
-// Handle pull request events
-// Here we'll update coverage
-handler.on('pull_request', async function (event) {
-  // Ignore documentation branches
-  if (event.payload.pull_request.head.ref === 'documentation') { return; }
+  switch(eventType) {
+  case 'pull_request':
+    let pr = event.payload.pull_request;
+    repoName = pr.head.repo.name;
+    ref = pr.head.ref;
+    head_sha = pr.head.sha;
+    base_sha = pr.base.sha;
+    let isFork = (pr.base.repo.owner.login !== pr.head.repo.owner.login)
+                 || (pr.base.repo.owner.login !== process.env.REPO_OWNER);
+    if (isFork) { throw ReferenceError('Forked PRs not supported; check config file') }
+    break;
+  case 'push':
+    repoName = event.payload.repository.name;
+    ref = event.payload.ref;
+    head_sha = event.payload.head_commit.id || event.payload.after;  // Run tests for head commit only
+    base_sha = event.payload.before;
+    break;
+  default: // Shouldn't get this far
+    throw TypeError(`Event "${event.event}" not supported`)
+  }
+
   // Log the event
-  console.log('Received a pull_request event for %s to %s',
-    event.payload.pull_request.head.repo.name,
-    event.payload.pull_request.head.ref)
-  if (!event.payload.action.endsWith('opened') && event.payload.action !== 'synchronize') { return; }
-  try { // Compare test coverage
-    let head_commit = event.payload.pull_request.head.sha;
-    let base_commit = event.payload.pull_request.base.sha;
-    if (false) { // TODO for alyx only
-      // Post a 'pending' status while we do our tests
-      await request('POST /repos/:owner/:repo/statuses/:sha', {
-          owner: process.env.REPO_OWNER,
-          repo: event.payload.repository.name,
-          headers: {
-              authorization: `token ${installationAccessToken}`,
-              accept: 'application/vnd.github.machine-man-preview+json'
-          },
-          sha: head_commit,
-          state: 'pending',
-          target_url: `${process.env.WEBHOOK_PROXY_URL}/events/${head_commit}`, // fail
-          description: 'Tests running',
-          context: `continuous-integration/${process.env.USERDOMAIN}`
-      });
+  console.log('Received a %s event for %s to %s',
+    eventType.replace('_', ' '), repoName, ref)
+
+  // Determine what to do from settings
+  if (!(eventType in config.events)) { return; }  // No events set; return
+  const todo = config.events[eventType] || {}
+
+  // Check if ref in ignore list  FIXME Support for regex here
+  let ref_ignore = ensureArray(todo.ref_ignore || []);
+  if (ref_ignore.indexOf(ref.split('/').pop()) > -1) { return; }  // Do nothing if in ignore list
+
+  // Check if action in actions list, if applicable
+  let actions = ensureArray(todo.actions || []);
+  if (event.payload.action && actions && actions.indexOf(event.payload.action) === -1) { return; }
+
+  // Validate checks to run
+  const checks = ensureArray(todo.checks || []);
+  if (!todo.checks) { return; }  // No checks to perform
+
+  // For each check we update it's status and add a job to the queue
+  let isString = x => { return (typeof x === 'string' || x instanceof String); }
+  for (let check of checks) {
+    // Invent a description for the initial status update
+    if (!isString(check)) {
+      throw TypeError('Check must be a string')
+    }
+    let context = `${check}/${process.env.USERDOMAIN}`
+    switch (check) {
+      case 'coverage':
+        description = 'Checking coverage';
+        break;
+      case 'continuous-integration':
+        description = 'Tests running';
+        break;
+      default:  // generic description
+        description = 'Check in progress';
     }
 
-    // Post a 'pending' status while we do our tests
-    request('POST /repos/:owner/:repo/statuses/:sha', {
-          owner: process.env.REPO_OWNER,
-          repo: event.payload.repository.name,
-          headers: {
-              authorization: `token ${installationAccessToken}`,
-              accept: 'application/vnd.github.machine-man-preview+json'
-          },
-          sha: head_commit,
-          state: 'pending',
-          target_url: `${process.env.WEBHOOK_PROXY_URL}/events/${head_commit}`, // fail
-          description: 'Checking coverage',
-          context: `coverage/${process.env.USERDOMAIN}`
-    });
-    // Check coverage exists
-    let data = {
-      repo: event.payload.repository.name,
-      coverage: {head: head_commit, base: base_commit}
-    };
-    compareCoverage(data);
-  } catch (error) {console.log(error)}
-});
+    // If we have two checks to perform and one already on the pile, set force to false
+    let qLen = queue.pile.length;
+    let force = !(checks.length > 1 && qLen > 0 && queue.pile[qLen-1].data.sha === head_sha);
+
+
+    // Update the status and start job
+    try {
+      // Post a 'pending' status while we do our tests
+      request('POST /repos/:owner/:repo/statuses/:sha', {
+        owner: process.env.REPO_OWNER, // TODO use event.payload.repository.owner.name?
+        repo: event.payload.repository.name,
+        headers: {
+          authorization: `token ${installationAccessToken}`,
+          accept: 'application/vnd.github.machine-man-preview+json'
+        },
+        sha: head_sha,
+        state: 'pending',
+        target_url: `${process.env.WEBHOOK_PROXY_URL}/events/${head_sha}`, // FIXME Formalize endpoints
+        description: description,
+        context: context
+      }).then( // Log outcome
+        () => {
+          console.log(`Updated status to "pending" for ${context}`);
+          // Add a new test job to the queue
+          queue.add({
+            sha: head_sha,
+            base: base_sha,  // For coverage
+            force: force,
+            owner: process.env.REPO_OWNER, // event.payload.repository.name
+            repo: event.payload.repository.name,
+            status: '',  // The status to ultimately update our context with
+            description: '',  // A brief description of what transpired
+            context: context // The precise check name, keeps track of what check we're doing
+          });
+        },
+        (err) => {
+          console.log(`Failed to update status to "pending" for ${context}`);
+          console.log(err);
+        }
+      );
+
+
+    } catch (error) {
+      console.log(error)
+    }
+  }
+}
+
+// NB: Only the supported events make it this far
+handler.on('*', evt => eventCallback(evt))
 
 // Start the server in the port 3000 // TODO Add to config
-var server = srv.listen(3000, function () {
-   var host = server.address().address
-   var port = server.address().port
+var server = srv.listen(config.listen_port, function () {
+   let host = server.address().address
+   let port = server.address().port
 
    console.log("Handler listening at http://%s:%s", host, port)
 });

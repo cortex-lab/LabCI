@@ -1,0 +1,17 @@
+{
+  "listen_port": 3000,
+  "timeout": 480000,
+  "program": "python",
+  "events": {
+    "push": {
+      "checks": null,
+      "actions": null,
+      "ref_ignore": ["documentation", "gh-pages"]
+    },
+    "pull_request": {
+      "checks": ["continuous-integration", "coverage"],
+      "actions": ["opened", "synchronize"],
+      "ref_ignore": ["documentation", "gh-pages"]
+    }
+  }
+}

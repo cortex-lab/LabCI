@@ -2,6 +2,10 @@
 
 A small set of modules written in Node.js for running automated tests of MATLAB code in response to GitHub events.  Also submits code coverage to the Coveralls API.
 
+Currently unsupported:
+* Running tests on forked repositories
+* 
+
 ## Getting Started
 
 Run the install script to install all dependencies, then create your .env file containing your App's tokens, secrets, etc.
@@ -46,10 +50,16 @@ TUNNEL_SUBDOMAIN=
 To run at startup create a batch file with the following command:
 
 ```batch
-cmd /k node -r dotenv/config dotenv_config_path=/Path/To/Env/Vars ./Path/To/index.js 
+cmd /k node -r dotenv/config dotenv_config_path=/Path/To/Env/Vars ./Path/To/main.js 
 ```
 
 Create a shortcut in your startup folder ([Windows-logo] + [R] in Windows-10 and enter the command `shell:startup`)
+
+## Test script
+Your test script must do the following:
+1. Accept a commit ID as an input arg
+2. Save the results into the JSON cache file without duplication
+3. For code coverage the script must either save the coverage directly, or export a Cobertura formatted XML file.
 
 ## Built With
 

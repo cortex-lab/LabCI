@@ -2,7 +2,7 @@
   "name": "matlab-ci",
   "version": "1.0.0",
   "description": "A small set of modules written in Node.js for running automated tests of MATLAB code in response to GitHub events.  Also submits code coverage to the Coveralls API.",
-  "main": "index.js",
+  "main": "main.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -28,6 +28,7 @@
     "chai": "^4.2.0",
     "chai-spies": "^1.0.0",
     "mocha": "^8.2.0",
+    "nock": "^13.0.4",
     "shelljs": "^0.8.4",
     "xml2js": "^0.4.23"
   }
