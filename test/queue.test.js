@@ -10,12 +10,12 @@ const {describe} = require('mocha');
 // const assert = require('chai').assert;
 const spies = require('chai-spies');
 const chai = require('chai');
-const should = chai.should()
-const assert = require('assert')
+const should = chai.should();
+const assert = require('assert');
 
 chai.use(spies);
 
-const Queue = require('../queue.js')
+const Queue = require('../queue.js');
 
 // TODO Check only one job is running at any one time
 // TODO Check console behaviour

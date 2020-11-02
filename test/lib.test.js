@@ -1,6 +1,7 @@
 const config = require('../config/config').settings
 const assert = require('assert')
 const { ensureArray, loadTestRecords, compareCoverage } = require('../lib');
+// TODO update package test script and add cross_env dev dependency
 ids = [
     'cabe27e5c8b8cb7cdc4e152f1cf013a89adc7a71',
     '1c33a6e2ac7d7fc098105b21a702e104e09767cf',
@@ -21,7 +22,7 @@ describe('Test loading test records:', function() {
     // Check NODE_ENV is correctly set, meaning our imported settings will be test ones
     before(function () {
         assert(process.env.NODE_ENV.startsWith('test'), 'Test run outside test env')
-    })
+    });
 
     it('Check loading existing record', function () {
         let id = ids[0];

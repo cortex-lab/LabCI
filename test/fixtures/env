@@ -1,0 +1,9 @@
+GITHUB_PRIVATE_KEY=./test/fixtures/priv.pem
+GITHUB_APP_IDENTIFIER=123
+GITHUB_WEBHOOK_SECRET=shhhhh
+WEBHOOK_PROXY_URL=https://sub.domain.ext
+REPO_PATH=C:\Users\Experiment\Documents\GitHub\Hello-World
+REPO_NAME=Hello-World
+REPO_OWNER=Codertocat
+TUNNEL_HOST=https://domain.ext
+TUNNEL_SUBDOMAIN=sub

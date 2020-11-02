@@ -6,6 +6,10 @@ const dataPath = (process.env.APPDATA)? path.join(appdata, 'CI') : path.join(app
 const dbFilename = '.db.json'
 let settings;
 
+// if (env.startsWith('test')) {
+//    require('dotenv').config({ path: '../test/fixtures/env' })
+// }
+
 // Defaults for when there's no user file; will almost certainly fail
 defaults = {
     listen_port: 3000,
@@ -14,7 +18,6 @@ defaults = {
     events: {
         push: {
             checks: null,
-            actions: null,
             ref_ignore: ["documentation", "gh-pages"]
         },
         pull_request: {
@@ -35,15 +38,15 @@ testing = {
     events: {
         push: {
             checks: "continuous-integration",
-            actions: null,
             ref_ignore: "documentation"
         },
         pull_request: {
-            checks: ["coverage"],
+            checks: ["coverage", "continuous-integration"],
             actions: ["opened", "synchronize"],
             ref_ignore: ["documentation", "gh-pages"]
         }
     },
+    dataPath: dataPath,
     dbFile: path.resolve(__dirname, '..', 'test', 'fixtures', dbFilename)  // cache of test results
 }
 
@@ -62,5 +65,14 @@ if (env.startsWith('test')) {
   settings = defaults;
 }
 
+// Check ENV set up correctly
+required = ['GITHUB_PRIVATE_KEY', 'GITHUB_APP_IDENTIFIER', 'GITHUB_WEBHOOK_SECRET',
+            'WEBHOOK_PROXY_URL', 'REPO_PATH', 'REPO_NAME', 'REPO_OWNER', 'TUNNEL_HOST',
+            'TUNNEL_SUBDOMAIN'];
+missing = required.filter(o => { return !process.env[o] });
+if (missing.length > 0) {
+    errMsg = `Env not set correctly; the following variables not found: \n${missing.join(', ')}`
+    throw ReferenceError(errMsg)
+}
 
 module.exports = { settings }

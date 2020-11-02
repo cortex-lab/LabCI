@@ -24,9 +24,24 @@ const fs = require('fs'),
     assert = require('assert').strict,
     parser = new xml2js.Parser(),
     path = require('path');
-var timestamp, md5, cb;
+var timestamp, cb;
 
 var token = process.env.COVERALLS_TOKEN;
+
+
+/**
+ * Loads file containing source code, returns a hash and line count
+ * @param {String} path - Path to the source code file.
+ * @returns {Object} key `Hash` contains MD5 digest string of file; `count` contains number of lines in source file
+ */
+function md5(path) {
+  var hash = crypto.createHash('md5'); // Creating hash object
+  var buf = fs.readFileSync(path, 'utf-8'); // Read in file
+  var count = buf.split(/\r\n|\r|\n/).length; // Count the number of lines
+  hash.update(buf, 'utf-8'); // Update hash
+  return {hash: hash.digest('hex'), count: count};
+}
+
 
 /**
  * Formats list of classes from XML file and return object formatted for the Coveralls API.
@@ -40,7 +55,7 @@ var token = process.env.COVERALLS_TOKEN;
  * @todo Generalize path default
  * @fixme Doesn't work with python's coverage
  */
-const formatCoverage = function(classList, srcPath, sha) {
+function formatCoverage(classList, srcPath, sha) {
   var job = {};
   var sourceFiles = [];
   srcPath = typeof srcPath != "undefined" ? srcPath : process.env.HOMEPATH; // default to home dir
@@ -81,7 +96,7 @@ const formatCoverage = function(classList, srcPath, sha) {
  * @todo Generalize ignoring of submodules
  * @see {@link https://github.com/cobertura/cobertura/wiki|Cobertura Wiki}
  */
-const coverage = function(path, repo, sha, callback) {
+function coverage(path, repo, sha, callback) {
   cb = callback; // @fixme Making callback global feels hacky
   fs.readFile(path, function(err, data) { // Read in XML file
     // @fixme deal with file not found errors
@@ -112,20 +127,8 @@ const coverage = function(path, repo, sha, callback) {
         formatCoverage(modules[(repo || 'main').toLowerCase()], rootPath, callback);
      });
   });
-};
+}
 
-/**
- * Loads file containing source code, returns a hash and line count
- * @param {String} path - Path to the source code file.
- * @returns {Object} key `Hash` contains MD5 digest string of file; `count` contains number of lines in source file
- */
-md5 = function(path) {
-  var hash = crypto.createHash('md5'); // Creating hash object
-  var buf = fs.readFileSync(path, 'utf-8'); // Read in file
-  var count = buf.split(/\r\n|\r|\n/).length; // Count the number of lines
-  hash.update(buf, 'utf-8'); // Update hash
-  return {hash: hash.digest('hex'), count: count};
-};
 
 // Export Coverage
 module.exports = coverage;

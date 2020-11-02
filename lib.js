@@ -1,6 +1,11 @@
+/**
+ * A module containing helper and callback functions for continuous integration.
+ */
 const localtunnel = require('localtunnel');
 const config = require('./config/config').settings
+const queue = new (require('./queue.js'))()  // The queue object for our app to use
 const fs = require('fs')
+
 
 /**
  * Util wraps input in array if not already one
@@ -8,6 +13,7 @@ const fs = require('fs')
  * @returns {Array} x as an array.
  */
 function ensureArray(x) { return (Array.isArray(x))? x : [x]; }
+
 
 /**
  * Load test results from .db.json file.  NB: Size and order of returned records not guaranteed
@@ -17,7 +23,7 @@ function loadTestRecords(id) {
   // FIXME Check file exists, catch JSON parse error
   if(!fs.existsSync(config.dbFile)) {
     console.log('Records file not found');
-    return null
+    return []
   }
   let obj = JSON.parse(fs.readFileSync(config.dbFile, 'utf8'));
   obj = ensureArray(obj);
@@ -25,33 +31,49 @@ function loadTestRecords(id) {
   // If single arg return as object, otherwise keep as array
   return (!Array.isArray(id) && records.length === 1 ? records[0] : records)
 }
+
 
 /**
- * Save test results from ci-.db.json file.
- * @param {string, array} id - Function to call with job and done callback when.
+ * Save test results from .db.json file.  Any matching records are merged before saving.
+ * @param {Object, Array} r - The record(s) to save.  Must contain an id field.
  * @todo WIP
  */
-function saveTestRecords(id) {
-  // FIXME Check file exists, catch JSON parse error
-  if(!fs.existsSync(config.dbFile)) {
-    console.log('Records file not found');
-    return null
-  }
-  let obj = JSON.parse(fs.readFileSync(config.dbFile, 'utf8'));
-  obj = ensureArray(obj);
-  let records = obj.filter(o => id.includes(o.commit));
-  fs.writeFile(config.dbFile, JSON.stringify(records), function(err) {
-    if (err) {
-      job.status = 'error'
-      job.description = 'Failed to compute coverage from XML'
-      console.log(err);
-    }
-  });
-  // If single arg return as object, otherwise keep as array
-  return (!Array.isArray(id) && records.length === 1 ? records[0] : records)
+function saveTestRecords(r) {
+   const byID = (a, b) => b.commit.localeCompare(a.commit);
+   r = ensureArray(r).sort(byID);
+   if (!r.every(x => 'commit' in x)) {
+      throw new APIError('"commit" not in record(s)')
+   }
+   return fs.readFile(config.dbFile, 'utf8', function(err, data) {
+      var obj;
+      if (err && err.code === 'ENOENT') {
+         console.log(`Records file not found at ${config.dbFile}`);
+         obj = [];
+      } else {
+         obj = ensureArray(JSON.parse(data));
+         let ids = r.map(x => x.commit);
+         let records = obj.filter(o => ids.indexOf(o.commit) >= 0);
+         // Update existing records
+         for (let old of records) {
+            let o = r.filter(x => x.id === old.commit);
+            if (o.length > 0) {
+               Object.assign(old, o.pop());
+            }
+         }
+         let updated = records.map(x => x.commit);
+         r = r.filter(x => updated.indexOf(x.commit) === -1);
+      }
+      // Add new records
+      obj = obj.concat(r);
+      return fs.writeFile(config.dbFile, JSON.stringify(obj));
+   })
 }
 
-// Configure a secure tunnel // TODO Add docstring
+
+/**
+ * Configures a persistent reverse proxy to use the same port as our local server.
+ * @returns (Class) - A localtunnel instance
+ */
 const openTunnel = async () => {
   let args = {
    port: config.listen_port,
@@ -62,7 +84,9 @@ const openTunnel = async () => {
   console.log(`Tunnel open on: ${tunnel.url}`);
   tunnel.on('close', () => {console.log('Reconnecting'); openTunnel(); });
   tunnel.on('error', (e) => { console.error(e) });
+  return tunnel;
 }
+
 
 /**
  * Compare coverage of two commits and post a failed status if coverage of head commit <= base commit.
@@ -122,5 +146,8 @@ function compareCoverage(job) {
   }
 }
 
+class APIError extends Error {
+  //...
+}
 
-module.exports = { ensureArray, loadTestRecords, compareCoverage, openTunnel }
+module.exports = { ensureArray, loadTestRecords, compareCoverage, openTunnel, APIError, queue }

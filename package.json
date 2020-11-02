@@ -4,7 +4,8 @@
   "description": "A small set of modules written in Node.js for running automated tests of MATLAB code in response to GitHub events.  Also submits code coverage to the Coveralls API.",
   "main": "main.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "env NODE_ENV=test mocha ./test --recursive --reporter spec",
+    "start": "node -r dotenv/config main.js"
   },
   "repository": {
     "type": "git",
@@ -27,9 +28,11 @@
   "devDependencies": {
     "chai": "^4.2.0",
     "chai-spies": "^1.0.0",
+    "fake-timers": "^0.1.2",
     "mocha": "^8.2.0",
     "nock": "^13.0.4",
     "shelljs": "^0.8.4",
+    "sinon": "^9.2.1",
     "xml2js": "^0.4.23"
   }
 }

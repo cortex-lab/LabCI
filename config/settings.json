@@ -5,7 +5,6 @@
   "events": {
     "push": {
       "checks": null,
-      "actions": null,
       "ref_ignore": ["documentation", "gh-pages"]
     },
     "pull_request": {
