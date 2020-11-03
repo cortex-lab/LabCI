@@ -122,10 +122,15 @@ function computeCoverage(job) {
 
 ///////////////////// GET EVENTS /////////////////////
 
-// Serve the test results for requested commit id
-srv.get('/github/:id', function (req, res) {
+/**
+ * Serve the test results for requested commit id.  This will be the result of a user clicking on
+ * the 'details' link next to the continuous integration check.  The result should be an HTML
+ * formatted copy of the stdout for the job's process.
+ */
+srv.get('/events/:id', function (req, res) {
   console.log('Request for test log for commit ' + req.params.id.substring(0,6))
-  let log = `.\\src\\matlab_tests-${req.params.id}.log`;  // TODO Generalize
+  let program = config.program || 'matlab';
+  let log = path.join(config.dataPath, 'reports', req.params.id, `${program}_tests-${req.params.id}.log`)
   fs.readFile(log, 'utf8', (err, data) => {
     if (err) {
     	res.statusCode = 404;
@@ -135,7 +140,6 @@ srv.get('/github/:id', function (req, res) {
     	let preText = '<html lang="en-GB"><body><pre>';
     	let postText = '</pre></body></html>';
       res.send(preText + data + postText);
-
     }
   });
 
@@ -150,7 +154,11 @@ srv.get('/github/:id', function (req, res) {
   */
 });
 
-// Serve the coverage results
+
+/**
+ * Serve the coverage results for the shields.io coverage badge API.  The coverage is loaded from
+ * the test records if one exists, otherwise a coverage job is added to the queue.
+ */
 srv.get('/coverage/:repo/:branch', async (req, res) => {
   // Find head commit of branch
   try {
@@ -196,7 +204,10 @@ srv.get('/coverage/:repo/:branch', async (req, res) => {
   }
 });
 
-// Serve the build status
+/**
+ * Serve the build status for the shields.io badge API.  Attempts to load the test results from
+ * file and if none exist, adds a new job to the queue.
+ */
 srv.get('/status/:repo/:branch', async (req, res) => {
   // Find head commit of branch
   try {
@@ -335,7 +346,6 @@ queue.process(async (job, done) => {
           done(error); // Propagate
       } else {
         const rec = loadTestRecords(job.data['sha']); // Load test result from json log
-        // FIXME check status valid, i.e. error, passed or failed
         job.data['status'] = rec['status'];
         job.data['description'] = rec['description'];
         job.data['coverage'] = ('coverage' in rec)? rec['coverage'] : null;
@@ -358,9 +368,15 @@ queue.process(async (job, done) => {
  * @param {Object} job - Job object which has finished being processed.
  */
 queue.on('finish', job => { // On job end post result to API
+  var endpoint
   console.log(`Job ${job.id} complete`)
+  if (job.data.context.startsWith('coverage')) {
+    endpoint = `${process.env.WEBHOOK_PROXY_URL}/logs/coverage/${data.sha}`;
+  } else {
+    endpoint = `${process.env.WEBHOOK_PROXY_URL}/events/${data.sha}`;
+  }
   if (job.data.skipPost === true) { return; }
-  updateStatus(job.data).then(  // Log outcome
+  updateStatus(job.data, endpoint).then(  // Log outcome
       () => { console.log(`Updated status to "${job.data.status}" for ${job.data.context}`); },
       (err) => {
           console.log(`Failed to update status to "${job.data.status}" for ${job.data.context}`);
