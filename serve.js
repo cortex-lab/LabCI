@@ -23,6 +23,7 @@ const secret = process.env.GITHUB_WEBHOOK_SECRET;
 // handler reject any others.  We will also check that only these are set up in the config.
 const supportedEvents = ['push', 'pull_request'];  // events the ci can handle
 const maxN = 140;  // The maximum n chars of the status description
+const ENDPOINT = 'logs';  // The URL endpoint for fetching status check details
 
 const app = new App({
     id: process.env.GITHUB_APP_IDENTIFIER,
@@ -68,6 +69,9 @@ function setAccessToken() {
    });
 }
 
+
+///////////////////// MAIN APP ENTRY POINT /////////////////////
+
 /**
  * Callback to deal with POST requests from /github endpoint, authenticates as app and passes on
  * request to handler.
@@ -88,20 +92,26 @@ srv.post('/github', async (req, res, next) => {
 });
 
 
-// Serve the test results for requested commit id
-srv.get('/logs/:id', function (req, res) {
-  console.log('Request for test log for commit ' + req.params.id.substring(0, 6))
-  let log = path.join(config.dataPath, 'reports', req.params.id, 'tests.log');  // TODO Generalize
-  console.log('Looking in ' + log)
+///////////////////// STATUS DETAILS /////////////////////
+
+/**
+ * Serve the test results for requested commit id.  This will be the result of a user clicking on
+ * the 'details' link next to the continuous integration check.  The result should be an HTML
+ * formatted copy of the stdout for the job's process.
+ */
+srv.get(`/${ENDPOINT}/:id`, function (req, res) {
+  console.log('Request for test log for commit ' + req.params.id.substring(0,6))
+  let program = config.program || 'matlab';
+  let log = path.join(config.dataPath, 'reports', req.params.id, `${program}_tests-${req.params.id}.log`)
   fs.readFile(log, 'utf8', (err, data) => {
     if (err) {
-      res.statusCode = 404;
-      res.send(`Record for commit ${req.params.id} not found`);
+    	res.statusCode = 404;
+    	res.send(`Record for commit ${req.params.id} not found`);
     } else {
-      res.statusCode = 200;
-      // Wrap in HTML tags so that the formatting is a little nicer.
-      let preText = '<!DOCTYPE html><html lang="en-GB"><body><pre>';
-      let postText = '</pre></body></html>';
+    	res.statusCode = 200;
+    	// Wrap in HTML tags so that the formatting is a little nicer.
+    	let preText = '<html lang="en-GB"><body><pre>';
+    	let postText = '</pre></body></html>';
       res.send(preText + data + postText);
     }
   });
@@ -109,15 +119,118 @@ srv.get('/logs/:id', function (req, res) {
 
 
 /**
- * Server the reports tree as a static resource; allows users to inspect the HTML coverage reports.
+ * Serve the reports tree as a static resource; allows users to inspect the HTML coverage reports.
  * The root of reports should be forbidden. We will add a link to the reports in the check details.
  */
-srv.use('/logs/coverage', express.static(path.join(config.dataPath, 'reports')))
-srv.get('/logs/coverage', function (req, res) {
+srv.use(`/${ENDPOINT}/coverage`, express.static(path.join(config.dataPath, 'reports')))
+srv.get(`/${ENDPOINT}/coverage`, function (req, res) {
    res.statusCode = 403;
    res.send('Forbidden');
 })
 
+
+///////////////////// SHIELDS API EVENTS /////////////////////
+
+/**
+ * Serve the coverage results for the shields.io coverage badge API.  The coverage is loaded from
+ * the test records if one exists, otherwise a coverage job is added to the queue.
+ */
+srv.get('/coverage/:repo/:branch', async (req, res) => {
+  // Find head commit of branch
+  try {
+    const { data } = await request('GET /repos/:owner/:repo/git/refs/heads/:branch', {
+      owner: process.env.REPO_OWNER,
+      repo: req.params.repo,
+      branch: req.params.branch
+    });
+    if (data.ref.endsWith('/' + req.params.branch)) {
+      console.log('Request for ' + req.params.branch + ' coverage')
+      let id = data.object.sha;
+      var report = {'schemaVersion': 1, 'label': 'coverage'};
+      try { // Try to load coverage record
+        let record = await loadTestRecords(id);
+        if (typeof record == 'undefined' || !record['coverage']) {throw 404} // Test not found for commit
+        if (record['status'] === 'error') {throw 500} // Test found for commit but errored
+        report['message'] = Math.round(record['coverage']*100)/100 + '%';
+        report['color'] = (record['coverage'] > 75 ? 'brightgreen' : 'red');
+      } catch (err) { // No coverage value
+        report['message'] = (err === 404 ? 'pending' : 'unknown');
+        report['color'] = 'orange';
+        // Check test isn't already on the pile
+        let onPile = false;
+        for (let job of queue.pile) { if (job.id === id) { onPile = true; break; } }
+        if (!onPile) { // Add test to queue
+          queue.add({
+            skipPost : true,
+            sha: id,
+            owner: process.env.REPO_OWNER,
+            repo: req.params.repo,
+            status: '',
+            context: ''});
+        }
+      } finally { // Send report
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify(report));}
+    } else { throw 404 } // Specified repo or branch not found
+  } catch (error) {
+    let msg = (error === 404 ? `${req.params.repo}/${req.params.branch} not found` : error); // @fixme error thrown by request not 404
+    console.error(msg)
+    res.statusCode = 401; // If not found, send 401 for security reasons
+    res.send(msg);
+  }
+});
+
+
+/**
+ * Serve the build status for the shields.io badge API.  Attempts to load the test results from
+ * file and if none exist, adds a new job to the queue.
+ */
+srv.get('/status/:repo/:branch', async (req, res) => {
+  // Find head commit of branch
+  try {
+    const { data } = await request('GET /repos/:owner/:repo/git/refs/heads/:branch', {
+      owner: process.env.REPO_OWNER,
+      repo: req.params.repo,
+      branch: req.params.branch
+    });
+    if (data.ref.endsWith('/' + req.params.branch)) {
+      console.log('Request for ' + req.params.branch + ' build status')
+      let id = data.object.sha;
+      var report = {'schemaVersion': 1, 'label': 'build'};
+      try { // Try to load coverage record
+        var record = await loadTestRecords(id);
+        if (typeof record == 'undefined' || record['status'] == '') {throw 404} // Test not found for commit
+        report['message'] = (record['status'] === 'success' ? 'passing' : 'failing');
+        report['color'] = (record['status'] === 'success' ? 'brightgreen' : 'red');
+      } catch (err) { // No coverage value
+        report['message'] = (err === 404 ? 'pending' : 'unknown');
+        report['color'] = 'orange';
+        // Check test isn't already on the pile
+        let onPile = false;
+        for (let job of queue.pile) { if (job.id === id) { onPile = true; break; } }
+        if (!onPile) { // Add test to queue
+          queue.add({
+            skipPost: true,
+            sha: id,
+            owner: process.env.REPO_OWNER,
+            repo: req.params.repo,
+            status: '',
+            context: ''});
+        }
+      } finally { // Send report
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify(report));}
+    } else { throw 404 } // Specified repo or branch not found
+  } catch (error) {
+    let msg = (error === 404 ? `${req.params.repo}/${req.params.branch} not found` : error); // @fixme error thrown by request not 404
+    console.error(msg)
+    res.statusCode = 401; // If not found, send 401 for security reasons
+    res.send(msg);
+  }
+});
+
+
+///////////////////// OTHER /////////////////////
 
 /**
  * Updates the status of a Github check, given an object of data from a Job.
@@ -141,7 +254,7 @@ function updateStatus(data, endpoint = null) {
       },
       sha: data['sha'],
       state: data['status'],
-      target_url: endpoint || `${process.env.WEBHOOK_PROXY_URL}/events/${data.sha}`,
+      target_url: endpoint || `${process.env.WEBHOOK_PROXY_URL}/${ENDPOINT}/${data.sha}`,
       description: data['description'].substring(0, maxN),
       context: data['context']
     });
@@ -155,7 +268,8 @@ function updateStatus(data, endpoint = null) {
  * Payload reference https://developer.github.com/webhooks/event-payloads/
  * @param {Object} event - The GitHub event object.
  * @todo Save full coverage object for future inspection
- * @todo add support for ignore list for specific actions
+ * @todo Add support for ignore list for specific actions
+ * @todo Add support for regex in branch ignore list
  */
 async function eventCallback (event) {
   var ref;  // ref (i.e. branch name) and head commit
@@ -185,7 +299,7 @@ async function eventCallback (event) {
     ref = pr.head.ref;
     job_template['sha'] = pr.head.sha;
     job_template['base'] = pr.base.sha;
-    // Check for repo fork; throw error if forked // TODO What's the behaviour for forked PRs?
+    // Check for repo fork; throw error if forked  // TODO Add full stack test for this behaviour
     let isFork = (pr.base.repo.owner.login !== pr.head.repo.owner.login)
                  || (pr.base.repo.owner.login !== process.env.REPO_OWNER)
                  || (pr.head.repo.name !== pr.base.repo.name);
@@ -208,7 +322,7 @@ async function eventCallback (event) {
   if (!(eventType in config.events)) { return; }  // No events set; return
   const todo = config.events[eventType] || {}  // List of events to process
 
-  // Check if ref in ignore list  FIXME Support for regex here
+  // Check if ref in ignore list
   let ref_ignore = ensureArray(todo.ref_ignore || []);
   if (ref_ignore.indexOf(ref.split('/').pop()) > -1) { return; }  // Do nothing if in ignore list
 
@@ -260,4 +374,30 @@ async function eventCallback (event) {
   }
 }
 
-module.exports = {updateStatus, srv, handler, request, setAccessToken, eventCallback}
+
+///////////////////// QUEUE EVENTS /////////////////////
+
+/**
+ * Callback triggered when job finishes.  Called both on complete and error.
+ * @param {Object} job - Job object which has finished being processed.
+ */
+queue.on('finish', job => { // On job end post result to API
+  var endpoint
+  console.log(`Job ${job.id} complete`)
+  if (job.data.context.startsWith('coverage')) {
+    endpoint = `${process.env.WEBHOOK_PROXY_URL}/${ENDPOINT}/coverage/${data.sha}`;
+  } else {
+    endpoint = `${process.env.WEBHOOK_PROXY_URL}/${ENDPOINT}/${data.sha}`;
+  }
+  if (job.data.skipPost === true) { return; }
+  updateStatus(job.data, endpoint).then(  // Log outcome
+      () => { console.log(`Updated status to "${job.data.status}" for ${job.data.context}`); },
+      (err) => {
+          console.log(`Failed to update status to "${job.data.status}" for ${job.data.context}`);
+          console.log(err);
+      }
+  );
+});
+
+
+module.exports = {updateStatus, srv, handler, setAccessToken, eventCallback}

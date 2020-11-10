@@ -3,6 +3,7 @@
  */
 const localtunnel = require('localtunnel');
 const config = require('./config/config').settings
+const Coverage = require('./coverage');
 const queue = new (require('./queue.js'))()  // The queue object for our app to use
 const fs = require('fs')
 
@@ -89,6 +90,46 @@ const openTunnel = async () => {
 
 
 /**
+ * Function to update the coverage of a job by parsing the XML file.
+ * @param {Object} job - Job object which has finished being processed.
+ * @todo Save full coverage object for future inspection
+ */
+function computeCoverage(job) {
+  if (typeof job.data.coverage !== 'undefined' && job.data.coverage) {
+    console.log('Coverage already computed for job #' + job.id)
+    return;
+  }
+  console.log('Updating coverage for job #' + job.id)
+  let xmlPath = path.join(config.dataPath, 'reports', job.data.sha, 'CoverageResults.xml')
+  Coverage(xmlPath, job.data.repo, job.data.sha, obj => {
+    // Digest and save percentage coverage
+    let misses = 0, hits = 0;
+    for (let file of obj.source_files) {
+      misses += file.coverage.filter(x => x === 0).length;
+      hits += file.coverage.filter(x => x > 0).length;
+    }
+    const coverage = hits / (hits + misses) * 100  // As percentage
+    job.data.coverage = coverage;  // Add to job
+    // Load data and save  TODO Move to saveTestRecord(s) function in lib
+    let records = JSON.parse(fs.readFileSync(config.dbFile, 'utf8'));
+    records = ensureArray(records); // Ensure array
+    for (let o of records) { if (o.commit === job.data.sha) { o.coverage = coverage; break; }}
+    // Save object
+    fs.writeFile(config.dbFile, JSON.stringify(records), function(err) {
+    if (err) {
+      job.status = 'error'
+      job.description = 'Failed to compute coverage from XML'
+      console.log(err);
+      return;
+    }
+    // If this test was to ascertain coverage, call comparison function
+    if ((job.data.context || '').startsWith('coverage')) { compareCoverage(job); }
+    });
+  });
+}
+
+
+/**
  * Compare coverage of two commits and post a failed status if coverage of head commit <= base commit.
  * @param {Object} job - Job object which has finished being processed.
  * @todo Add support for forked PRs
@@ -150,4 +191,4 @@ class APIError extends Error {
   //...
 }
 
-module.exports = { ensureArray, loadTestRecords, compareCoverage, openTunnel, APIError, queue }
+module.exports = { ensureArray, loadTestRecords, compareCoverage, computeCoverage, openTunnel, APIError, queue }

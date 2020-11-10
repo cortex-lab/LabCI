@@ -15,8 +15,7 @@ Run the install script to install all dependencies, then create your .env file c
 Requires MATLAB 2017a or later, Node.js and Git Bash.  The following Node.js modules are required:
 
 ```
-npm install --save express dotenv @octokit/app @octokit/request ...
-github-webhook-handler xml2js localtunnel
+npm install ./matlab-ci
 ```
 
 ### Installing
