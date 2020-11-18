@@ -36,7 +36,7 @@ def list_tests(suite: Union[List, unittest.TestSuite]) -> Union[List[str], str]:
 
 
 def run_tests(coverage_source: Iterable = None,
-              complete: bool = False) -> (unittest.TestResult, Coverage, List[str]):
+              complete: bool = True) -> (unittest.TestResult, Coverage, List[str]):
     """
     Run integration tests
     :param coverage_source: An iterable of source directory path strings for recording code
@@ -54,7 +54,7 @@ def run_tests(coverage_source: Iterable = None,
     ci_tests = unittest.TestLoader().discover(test_dir, pattern='test_*')
     if complete:  # include ibllib unit tests
         # FIXME Loader fails to import
-        test_dir = Path(ibllib.__file__).parents[1].joinpath('tests')
+        test_dir = Path(ibllib.__file__).parents[1]
         assert test_dir.exists(), 'Can not find unit tests for ibllib'
         # test_dir = str(Path(__file__).absolute().parents[1].joinpath('ibllib', 'tests'))
         unit_tests = unittest.TestLoader().discover(str(test_dir), pattern='test_*')
