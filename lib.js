@@ -72,6 +72,44 @@ function saveTestRecords(r) {
 
 
 /**
+ * Updates a job's data from saved test records.
+ * @param {Object} job - Job object which is being processed.
+ * @returns {boolean} - true if record was found
+ */
+function updateJobFromRecord(job) {
+    let rec = loadTestRecords(job.data['sha']);  // Load test result from json log
+    if (rec.length === 0) { return false; }  // No record found
+    rec = Array.isArray(rec) ? rec.pop() : rec;  // in case of duplicates, take last
+    job.data['status'] = rec['status'];
+    job.data['description'] = rec['description'];
+    job.data['coverage'] = ('coverage' in rec)? rec['coverage'] : null;
+    if (!job.data['coverage']) {
+       computeCoverage(job);  // Attempt to load from XML
+    } else if ((job.data.context || '').startsWith('coverage')) {
+       compareCoverage(job);  // If this test was to ascertain coverage, call comparison function
+    }
+   return true;
+}
+
+
+/**
+ * Curry a function for passing incomplete args.
+ * @param {Object} func - Function to be curried.
+ */
+function partial(func) {
+   return function curried(...args) {
+      if (args.length >= func.length) {
+         return func.apply(this, args);
+      } else {
+         return function(...args2) {
+            return curried.apply(this, args.concat(args2));
+         }
+      }
+   };
+}
+
+
+/**
  * Configures a persistent reverse proxy to use the same port as our local server.
  * @returns (Class) - A localtunnel instance
  */
@@ -90,9 +128,28 @@ const openTunnel = async () => {
 
 
 /**
+ * Updates the status of a Github check, given an object of data from a Job.
+ * @param {Object} job - The Job to be updated upon timeout.
+ * @param {ChildProcess} childProcess - The process to kill upon timeout.  The process should
+ * cancel the returned timer in its callback.
+ * @param {Function} done - Callback on complete (optional).
+ * @returns {number} - A timeout object.
+ */
+function startJobTimer(job, childProcess, done=null) {
+   const timeout = config.timeout || 8*60000;  // How long to wait for the tests to run
+   return setTimeout(() => {
+      console.log('Max test time exceeded');
+      job.data['status'] = 'error';
+      job.data['description'] = `Tests stalled after ~${(timeout / 60000).toFixed(0)} min`;
+      childProcess.kill();
+      if (done !== null) { done(new Error('Job stalled')); }
+   }, timeout);
+}
+
+
+/**
  * Function to update the coverage of a job by parsing the XML file.
  * @param {Object} job - Job object which has finished being processed.
- * @todo Save full coverage object for future inspection
  */
 function computeCoverage(job) {
   if (typeof job.data.coverage !== 'undefined' && job.data.coverage) {
@@ -191,4 +248,7 @@ class APIError extends Error {
   //...
 }
 
-module.exports = { ensureArray, loadTestRecords, compareCoverage, computeCoverage, openTunnel, APIError, queue }
+module.exports = {
+   ensureArray, loadTestRecords, compareCoverage, computeCoverage,
+   openTunnel, APIError, queue, partial, startJobTimer, updateJobFromRecord
+}

@@ -1,8 +1,9 @@
 const userSettings = require('./settings.json') || {}  // User settings
 const path = require('path')
 env = process.env.NODE_ENV || 'production'
-const appdata = process.env.APPDATA || process.env.HOMEPATH;
-const dataPath = (process.env.APPDATA)? path.join(appdata, 'CI') : path.join(appdata, '.ci')
+const appdata = process.env.APPDATA || process.env.HOME;
+const dataPath = process.env.APPDATA? path.join(appdata, 'CI') : path.join(appdata, '.ci')
+const fixtureDir = path.resolve(__dirname, '..', 'test', 'fixtures')
 const dbFilename = '.db.json'
 let settings;
 
@@ -12,6 +13,8 @@ let settings;
 
 // Defaults for when there's no user file; will almost certainly fail
 defaults = {
+    setup_function: null,
+    test_function: null,
     listen_port: 3000,
     timeout: 8*60000,
     program: "python",
@@ -46,8 +49,8 @@ testing = {
             ref_ignore: ["documentation", "gh-pages"]
         }
     },
-    dataPath: dataPath,
-    dbFile: path.resolve(__dirname, '..', 'test', 'fixtures', dbFilename)  // cache of test results
+    dataPath: fixtureDir,
+    dbFile: path.join(fixtureDir, dbFilename)  // cache of test results
 }
 
 // Pick the settings to return

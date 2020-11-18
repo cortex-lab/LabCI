@@ -1,11 +1,13 @@
 """A module for running ibllib continuous integration tests with coverage
-In order for this to work ibllib and iblscripts must be installed as python package from GitHub.
+In order for this to work ibllib and iblscripts must be installed as python package from GitHub,
+as well as the coverage package.
 """
 import argparse
 import unittest
 import re
 import json
 import logging
+from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from os import sep
 from pathlib import Path
@@ -16,15 +18,14 @@ from coverage import Coverage
 import ibllib
 from ibllib.misc.flatten import flatten
 from ibllib.misc.version import ibllib as ver
-from datetime import datetime
 
 logger = logging.getLogger('ibllib')
 
 
-def list_tests(suite: Union[List, unittest.TestSuite]) -> Union[List[str], str]:
+def list_tests(suite: Union[List, unittest.TestSuite, unittest.TestCase]) -> Union[List[str], str]:
     """
     Returns a full list of the tests run in the format 'TestClassName/test_method'
-    :param suite: A TestSuite instance, or list thereof
+    :param suite: A TestCase or TestSuite instance, or list thereof
     :return: A list of tests
     """
     if isinstance(suite, list):
@@ -36,13 +37,13 @@ def list_tests(suite: Union[List, unittest.TestSuite]) -> Union[List[str], str]:
 
 
 def run_tests(coverage_source: Iterable = None,
-              complete: bool = True) -> (unittest.TestResult, Coverage, List[str]):
+              complete: bool = True) -> (unittest.TestResult, Coverage, unittest.TestSuite):
     """
     Run integration tests
     :param coverage_source: An iterable of source directory path strings for recording code
     coverage
     :param complete: When true ibllib unit tests are run in addition to the integration tests
-    return: Test results and coverage objects, and list of test names
+    return: Test results and coverage objects, and test suite
     """
     # Coverage recorded for all code within the source directory; otherwise just omit some
     # common pyCharm files
@@ -50,16 +51,14 @@ def run_tests(coverage_source: Iterable = None,
 
     # Gather tests
     test_dir = str(Path(__file__).absolute().parents[1].joinpath('iblscripts', 'ci', 'tests'))
-    # test_dir = str(Path(iblscripts.__file__).parent.joinpath('ci', 'tests'))
+    # test_dir = str(Path(iblscripts.__file__).parent)
     ci_tests = unittest.TestLoader().discover(test_dir, pattern='test_*')
     if complete:  # include ibllib unit tests
-        # FIXME Loader fails to import
         test_dir = Path(ibllib.__file__).parents[1]
         assert test_dir.exists(), 'Can not find unit tests for ibllib'
         # test_dir = str(Path(__file__).absolute().parents[1].joinpath('ibllib', 'tests'))
         unit_tests = unittest.TestLoader().discover(str(test_dir), pattern='test_*')
         ci_tests = unittest.TestSuite((ci_tests, unit_tests))
-    test_names = list_tests(ci_tests)
 
     # Run tests with coverage
     cov = Coverage(**options)
@@ -70,11 +69,13 @@ def run_tests(coverage_source: Iterable = None,
     cov.stop()
     cov.save()
 
-    return result, cov, test_names
+    return result, cov, ci_tests
 
 
 if __name__ == "__main__":
     r"""Run all the integration tests with coverage
+    The commit id is used to identify the test report.  If none is provided no test record is saved
+ 
     python runAllTests.py --logdir <log directory> --commit <commit sha> --repo <repo path>
     
     Examples:
@@ -103,7 +104,8 @@ if __name__ == "__main__":
     logfile = report_dir / 'test_output.log'
     db_file = Path(args.logdir, '.db.json')
 
-    fh = RotatingFileHandler(logfile, maxBytes=(1048576 * 5))  # FIXME no need to save log
+    # Setup backup log (NB: the system output is also saved by the ci)
+    fh = RotatingFileHandler(logfile, maxBytes=(1048576 * 5))
     logger.addHandler(fh)
     logger.setLevel(logging.INFO)
 
@@ -111,7 +113,7 @@ if __name__ == "__main__":
     logger.info(args.repo.joinpath('*'))
     result, cov, test_list = run_tests(coverage_source=[str(args.repo)])
 
-    # Generate report  TODO Reports directory from config file
+    # Generate report
     logger.info('Saving coverage report to %s', report_dir)
     total = cov.html_report(directory=str(report_dir))
     cov.xml_report(outfile=str(report_dir.joinpath('CoverageResults.xml')))
@@ -132,18 +134,21 @@ if __name__ == "__main__":
     if args.commit is parser.get_default('commit'):
         exit(0)
 
-    # TODO Save test info
-    # TODO JSON path from config file
     # Summarize the results of the tests and write results to the JSON file
     logger.info('Saving outcome to %s', db_file)
     status = 'success' if result.wasSuccessful() else 'failure'
     n_failed = len(result.failures) + len(result.errors)
     fail_str = f'{n_failed}/{result.testsRun} tests failed'
     description = 'All passed' if result.wasSuccessful() else fail_str
+    # Save all test names if all passed, otherwise save those that failed and their error stack
+    if n_failed > 0:
+        details = [(list_tests(c), err) for c, err in result.failures + result.errors]
+    else:
+        details = list_tests(test_list)
 
     report = {
         'commit': args.commit,
-        'results': [],  # result.failures + result.errors,  # TODO make serializable
+        'results': details,
         'status': status,
         'description': description,
         'coverage': total  # coverage usually updated by Node.js script

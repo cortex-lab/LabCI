@@ -4,14 +4,16 @@
  */
 const fs = require('fs');
 const path = require('path');
-const config = require('./config/config').settings;
-const queue = require('./lib').queue;  // shared Queue from lib
-const { APIError, ensureArray } = require('./lib');
+const cp = require('child_process');
+
 const express = require('express');
 const srv = express();
-
 const { App } = require('@octokit/app');
-const { request } = require("@octokit/request");
+const { request } = require('@octokit/request');
+
+const config = require('./config/config').settings;
+const queue = require('./lib').queue;  // shared Queue from lib
+const { APIError, ensureArray, startJobTimer, loadTestRecords, updateJobFromRecord } = require('./lib');
 
 // The installation token is a temporary token required for making changes to the Github Checks.
 // The token will be set each time a new Github request is received.
@@ -25,19 +27,20 @@ const supportedEvents = ['push', 'pull_request'];  // events the ci can handle
 const maxN = 140;  // The maximum n chars of the status description
 const ENDPOINT = 'logs';  // The URL endpoint for fetching status check details
 
+// Check all config events are supported
+const events = Object.keys(config.events);
+if (events.some(evt => { return !supportedEvents.includes(evt); })) {
+  let errStr = 'One or more events in config not supported. ' +
+               `The following events are supported: ${supportedEvents.join(', ')}`;
+  throw ReferenceError(errStr)
+}
+
+// Create app instance for authenticating our GitHub app
 const app = new App({
     id: process.env.GITHUB_APP_IDENTIFIER,
     privateKey: fs.readFileSync(process.env.GITHUB_PRIVATE_KEY),
     webhooks: { secret }
 });
-
-// Check all config events are supported  // TODO Add test for this
-const events = Object.keys(config.events);
-if (events.some(evt => {return supportedEvents.indexOf(evt) === -1 })) {
-  let errStr = 'One or more events in config not supported. ' +
-               `The following events are supported: ${supportedEvents.join(', ')}`;
-  throw ReferenceError(errStr)
-}
 
 // Create handler to verify posts signed with webhook secret.  Content type must be application/json
 const createHandler = require('github-webhook-handler');
@@ -82,7 +85,7 @@ function setAccessToken() {
 srv.post('/github', async (req, res, next) => {
    console.log('Post received')
    let id = req.header('x-github-hook-installation-target-id');
-   if (id != process.env.GITHUB_APP_IDENTIFIER) { next() }  // Move on
+   if (id != process.env.GITHUB_APP_IDENTIFIER) { next() }  // Not for us; move on
    setAccessToken().then(
       handler(req, res, () => res.end('ok'))
    ).then(
@@ -132,102 +135,200 @@ srv.get(`/${ENDPOINT}/coverage`, function (req, res) {
 ///////////////////// SHIELDS API EVENTS /////////////////////
 
 /**
- * Serve the coverage results for the shields.io coverage badge API.  The coverage is loaded from
- * the test records if one exists, otherwise a coverage job is added to the queue.
+ * Get the coverage results and build status data for the shields.io coverage badge API.
+ * If test results don't exist, a new job is added to the queue and the message is set to 'pending'
+ * @param {Object} data - An object with the keys 'sha', 'repo', 'owner' and 'context'.
+ * 'context' must be 'coverage' or 'status'.
  */
-srv.get('/coverage/:repo/:branch', async (req, res) => {
-  // Find head commit of branch
-  try {
-    const { data } = await request('GET /repos/:owner/:repo/git/refs/heads/:branch', {
-      owner: process.env.REPO_OWNER,
-      repo: req.params.repo,
-      branch: req.params.branch
-    });
-    if (data.ref.endsWith('/' + req.params.branch)) {
-      console.log('Request for ' + req.params.branch + ' coverage')
-      let id = data.object.sha;
-      var report = {'schemaVersion': 1, 'label': 'coverage'};
-      try { // Try to load coverage record
-        let record = await loadTestRecords(id);
-        if (typeof record == 'undefined' || !record['coverage']) {throw 404} // Test not found for commit
-        if (record['status'] === 'error') {throw 500} // Test found for commit but errored
-        report['message'] = Math.round(record['coverage']*100)/100 + '%';
-        report['color'] = (record['coverage'] > 75 ? 'brightgreen' : 'red');
-      } catch (err) { // No coverage value
-        report['message'] = (err === 404 ? 'pending' : 'unknown');
-        report['color'] = 'orange';
-        // Check test isn't already on the pile
-        let onPile = false;
-        for (let job of queue.pile) { if (job.id === id) { onPile = true; break; } }
-        if (!onPile) { // Add test to queue
-          queue.add({
-            skipPost : true,
-            sha: id,
-            owner: process.env.REPO_OWNER,
-            repo: req.params.repo,
-            status: '',
-            context: ''});
-        }
-      } finally { // Send report
-        res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify(report));}
-    } else { throw 404 } // Specified repo or branch not found
-  } catch (error) {
-    let msg = (error === 404 ? `${req.params.repo}/${req.params.branch} not found` : error); // @fixme error thrown by request not 404
-    console.error(msg)
-    res.statusCode = 401; // If not found, send 401 for security reasons
-    res.send(msg);
-  }
-});
+function sheildsCallback(data) {
+   let id = data.sha;
+   var report = {'schemaVersion': 1};
+   // Try to load coverage record
+   let record = loadTestRecords(id);
+   // If no record found
+   if (record.length === 0) {
+      report['message'] = 'pending';
+      report['color'] = 'orange';
+      // Check test isn't already on the pile
+      let onPile = false;
+      for (let job of queue.pile) { if (job.id === id) { onPile = true; break; } }
+      if (!onPile) { // Add test to queue
+         data['skipPost'] = true
+         queue.add(data);
+      }
+   } else {
+      record = Array.isArray(record) ? record.pop() : record;  // in case of duplicates, take last
+      switch (data.context) {
+         case 'status':
+            report['label'] = 'build';
+            if (record['status'] === 'error' || !record['coverage']) {
+               report['message'] = 'unknown';
+               report['color'] = 'orange';
+            } else {
+               report['message'] = (record['status'] === 'success' ? 'passing' : 'failing');
+               report['color'] = (record['status'] === 'success' ? 'brightgreen' : 'red');
+            }
+            break;
+         case 'coverage':
+            report['label'] = 'coverage';
+            if (record['status'] === 'error' || !record['coverage']) {
+               report['message'] = 'unknown';
+               report['color'] = 'orange';
+            } else {
+               report['message'] = Math.round(record['coverage'] * 100) / 100 + '%';
+               report['color'] = (record['coverage'] > 75 ? 'brightgreen' : 'red');
+            }
+            break;
+         default:
+            throw new TypeError('Unsupported badge request')
+      }
+   }
+   return report;
+}
 
 
 /**
- * Serve the build status for the shields.io badge API.  Attempts to load the test results from
- * file and if none exist, adds a new job to the queue.
+ * Serve the coverage results and build status for the shields.io coverage badge API.  Attempts to
+ * load the test results from file and if none exist, adds a new job to the queue.
  */
-srv.get('/status/:repo/:branch', async (req, res) => {
-  // Find head commit of branch
-  try {
-    const { data } = await request('GET /repos/:owner/:repo/git/refs/heads/:branch', {
+srv.get('/:badge/:repo/:branch', async (req, res) => {
+   const data = {
+      sha: null,
       owner: process.env.REPO_OWNER,
       repo: req.params.repo,
-      branch: req.params.branch
-    });
-    if (data.ref.endsWith('/' + req.params.branch)) {
-      console.log('Request for ' + req.params.branch + ' build status')
-      let id = data.object.sha;
-      var report = {'schemaVersion': 1, 'label': 'build'};
-      try { // Try to load coverage record
-        var record = await loadTestRecords(id);
-        if (typeof record == 'undefined' || record['status'] == '') {throw 404} // Test not found for commit
-        report['message'] = (record['status'] === 'success' ? 'passing' : 'failing');
-        report['color'] = (record['status'] === 'success' ? 'brightgreen' : 'red');
-      } catch (err) { // No coverage value
-        report['message'] = (err === 404 ? 'pending' : 'unknown');
-        report['color'] = 'orange';
-        // Check test isn't already on the pile
-        let onPile = false;
-        for (let job of queue.pile) { if (job.id === id) { onPile = true; break; } }
-        if (!onPile) { // Add test to queue
-          queue.add({
-            skipPost: true,
-            sha: id,
-            owner: process.env.REPO_OWNER,
-            repo: req.params.repo,
-            status: '',
-            context: ''});
-        }
-      } finally { // Send report
-        res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify(report));}
-    } else { throw 404 } // Specified repo or branch not found
-  } catch (error) {
-    let msg = (error === 404 ? `${req.params.repo}/${req.params.branch} not found` : error); // @fixme error thrown by request not 404
-    console.error(msg)
-    res.statusCode = 401; // If not found, send 401 for security reasons
-    res.send(msg);
+      branch: req.params.branch,
+      context: req.params.badge
+   }
+   // Find head commit of branch
+   const { info } = await request('GET /repos/:owner/:repo/git/refs/heads/:branch', { data });
+   if (info.ref.endsWith('/' + data.branch)) {
+      console.log(`'Request for ${data.branch} ${data.context}`)
+      const report = sheildsCallback(data)
+      // Send report
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify(report));
+   } else {  // Specified repo or branch not found
+      console.error(`${data.repo}/${data.branch} not found`)
+      res.statusCode = 401;
+      res.send(msg);
   }
 });
+
+
+///////////////////// QUEUE EVENTS /////////////////////
+
+/**
+ * Called by queue process.  Here we checkout git and call MATLAB.
+ * @param {Object} job - Job object which is being processed.
+ * @param {Function} done - Callback on complete.
+ */
+function runTestsMATLAB(job, done) {
+   // Go ahead and prepare to run tests
+   sha = job.data['sha']; // Retrieve commit hash
+   // If the repo is a submodule, modify path
+   repo_path = process.env.REPO_PATH;  // FIXME generalize
+   if (job.data['repo'] === 'alyx-matlab' || job.data['repo'] === 'signals') {
+      repo_path = repo_path + path.sep + job.data['repo'];}
+   // if (job.data['repo'] === 'alyx') { sha = 'dev' }  // For Alyx checkout master
+   // Checkout commit  TODO Use shelljs here
+   return checkout = cp.execFile('checkout_ibllib_test.bat ', [sha, repo_path], (error, stdout, stderr) => {
+      if (error) { // Send error status
+         console.error('Checkout failed: ', stderr);
+         job.data['status'] = 'error';
+         job.data['description'] = `Failed to checkout code: ${stderr}`;
+         done(error); // Propagate error
+         return;
+      }
+      console.log(stdout)
+      let runTests  // the child process
+      const timer = startJobTimer(job, runTests, done);
+
+      // Go ahead with MATLAB tests
+      // Run tests in MATLAB
+      let logName = path.join(config.dataPath, 'reports', job.data['sha'], `matlab_tests-${job.data['sha']}.log`);
+      let args = ['-r', `runAllTests (""${job.data.sha}"",""${job.data.repo}"")`,
+                  '-wait', '-log', '-nosplash', '-logfile', logName];
+      runTests = cp.execFile('matlab', args, (error, stdout, stderr) => {
+         clearTimeout(timer);
+         if (error) { // Send error status
+            job.data['status'] = 'error';
+            // Isolate error from log
+            // For MATLAB return the line that begins with 'Error'
+            let fn = (str) => { return str.startsWith('Error in \'') };
+            job.data['description'] = stderr.split(/\r?\n/).filter(fn).join(';');
+            done(error); // Propagate
+         } else {
+            updateJobFromRecord(job);
+            done();
+         }
+      });
+      runTests.stdout.pipe(process.stdout);  // Pipe to display
+   });
+}
+
+/**
+ * Called by queue process.  Here we checkout git and call MATLAB.
+ * @param {Object} job - Job object which is being processed.
+ * @param {Function} done - Callback on complete.
+ */
+function runTestsPython(job, done) {
+   let runTests  // the child process
+   const timer = startJobTimer(job, runTests, done);
+   let logName = path.join(config.dataPath, 'reports', job.data['sha'], `python_tests-${job.data['sha']}.log`);
+
+   // Run tests in Python
+   let testFunction = path.resolve(__dirname, 'runAllTests.py');
+   if(!fs.existsSync(testFunction)) { done(new Error (`"${testFunction}" not found`)); }
+   let args = [testFunction, '-c', job.data.sha, '-r', process.env.REPO_PATH, '--logdir', `${config.dataPath}`];
+   runTests = cp.execFile('python', args, (error, stdout, stderr) => {
+      clearTimeout(timer);
+      if (error) { // Send error status
+         job.data['status'] = 'error';
+         // Isolate error from log
+         // For Python, cat from the lost line that doesn't begin with whitespace
+         let errArr = stderr.split(/\r?\n/);s
+         let idx = errArr.reverse().findIndex(v => {return v.match('^\\S')});
+         job.data['description'] = stderr.split(/\r?\n/).slice(-idx-1).join(';');
+         done(error); // Propagate
+      } else {
+         updateJobFromRecord(job);
+         done();
+      }
+   });
+
+   // Write output to file
+   runTests.stdout.pipe(process.stdout);  // Pipe to display
+   let logDump = fs.createWriteStream(logName);
+   runTests.stdout.pipe(logDump)
+   runTests.on('exit', () => { logDump.close(); });
+   // runTests.stdout.write = runTests.stderr.write = logDump.write.bind(access);
+}
+
+
+/**
+ * Define how to process tests.  Here we checkout git and call MATLAB.
+ * @param {Function} func - The tests function to run, e.g. `runTestsMATLAB` or `runTestsPython`.
+ * @param {Object} job - Job object which is being processed.
+ * @param {Function} done - Callback on complete.
+ */
+function process(func, job, done) {
+   // job.data contains the custom data passed when the job was created
+   // job.id contains id of this job.
+
+   // To avoid running our tests twice, set the force flag to false for any other jobs in pile that
+   // have the same commit ID
+   let sha = job.data.sha;
+   let others = queue.pile.filter(o => (o.data.sha === sha) && (o.id !== job.id));
+   for (let other of others) { other.data.force = false }
+   // If lazy, load records to check whether we already have the results saved
+   if (job.data.force === false) {  // NB: Strict equality; force by default
+      const updated = updateJobFromRecord(job)
+      if (updated) { return done(); }  // No need to run tests; skip to complete routine
+   }
+
+   // Go ahead and prepare to run tests  // TODO Could move to callback
+   return func(job, done);
+}
 
 
 ///////////////////// OTHER /////////////////////
@@ -400,4 +501,6 @@ queue.on('finish', job => { // On job end post result to API
 });
 
 
-module.exports = {updateStatus, srv, handler, setAccessToken, eventCallback}
+module.exports = {
+   updateStatus, srv, handler, setAccessToken, eventCallback, runTestsPython, runTestsMATLAB
+}
