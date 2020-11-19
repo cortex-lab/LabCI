@@ -13,14 +13,14 @@ const { request } = require('@octokit/request');
 
 const config = require('./config/config').settings;
 const queue = require('./lib').queue;  // shared Queue from lib
-const { APIError, ensureArray, startJobTimer, loadTestRecords, updateJobFromRecord } = require('./lib');
+const lib = require('./lib');
 
 // The installation token is a temporary token required for making changes to the Github Checks.
 // The token will be set each time a new Github request is received.
 var installationAccessToken;
 // A hash of the secret is send in the X-Hub-Signature; the handler checks the hash to validate
 // that the request comes from GitHub.
-const secret = process.env.GITHUB_WEBHOOK_SECRET;
+const secret = process.env['GITHUB_WEBHOOK_SECRET'];
 // Currently this app is only set up to process push and pull request events so we will have the
 // handler reject any others.  We will also check that only these are set up in the config.
 const supportedEvents = ['push', 'pull_request'];  // events the ci can handle
@@ -37,8 +37,8 @@ if (events.some(evt => { return !supportedEvents.includes(evt); })) {
 
 // Create app instance for authenticating our GitHub app
 const app = new App({
-    id: process.env.GITHUB_APP_IDENTIFIER,
-    privateKey: fs.readFileSync(process.env.GITHUB_PRIVATE_KEY),
+    id: process.env['GITHUB_APP_IDENTIFIER'],
+    privateKey: fs.readFileSync(process.env['GITHUB_PRIVATE_KEY']),
     webhooks: { secret }
 });
 
@@ -57,8 +57,8 @@ function setAccessToken() {
    const token = app.getSignedJsonWebToken();
    // GET /orgs/:org/installation
    return request("GET /repos/:owner/:repo/installation", {
-      owner: process.env.REPO_OWNER,
-      repo: process.env.REPO_NAME,
+      owner: process.env['REPO_OWNER'],
+      repo: process.env['REPO_NAME'],
       headers: {
          authorization: `bearer ${token}`,
          accept: "application/vnd.github.machine-man-preview+json"
@@ -135,83 +135,29 @@ srv.get(`/${ENDPOINT}/coverage`, function (req, res) {
 ///////////////////// SHIELDS API EVENTS /////////////////////
 
 /**
- * Get the coverage results and build status data for the shields.io coverage badge API.
- * If test results don't exist, a new job is added to the queue and the message is set to 'pending'
- * @param {Object} data - An object with the keys 'sha', 'repo', 'owner' and 'context'.
- * 'context' must be 'coverage' or 'status'.
- */
-function sheildsCallback(data) {
-   let id = data.sha;
-   var report = {'schemaVersion': 1};
-   // Try to load coverage record
-   let record = loadTestRecords(id);
-   // If no record found
-   if (record.length === 0) {
-      report['message'] = 'pending';
-      report['color'] = 'orange';
-      // Check test isn't already on the pile
-      let onPile = false;
-      for (let job of queue.pile) { if (job.id === id) { onPile = true; break; } }
-      if (!onPile) { // Add test to queue
-         data['skipPost'] = true
-         queue.add(data);
-      }
-   } else {
-      record = Array.isArray(record) ? record.pop() : record;  // in case of duplicates, take last
-      switch (data.context) {
-         case 'status':
-            report['label'] = 'build';
-            if (record['status'] === 'error' || !record['coverage']) {
-               report['message'] = 'unknown';
-               report['color'] = 'orange';
-            } else {
-               report['message'] = (record['status'] === 'success' ? 'passing' : 'failing');
-               report['color'] = (record['status'] === 'success' ? 'brightgreen' : 'red');
-            }
-            break;
-         case 'coverage':
-            report['label'] = 'coverage';
-            if (record['status'] === 'error' || !record['coverage']) {
-               report['message'] = 'unknown';
-               report['color'] = 'orange';
-            } else {
-               report['message'] = Math.round(record['coverage'] * 100) / 100 + '%';
-               report['color'] = (record['coverage'] > 75 ? 'brightgreen' : 'red');
-            }
-            break;
-         default:
-            throw new TypeError('Unsupported badge request')
-      }
-   }
-   return report;
-}
-
-
-/**
  * Serve the coverage results and build status for the shields.io coverage badge API.  Attempts to
  * load the test results from file and if none exist, adds a new job to the queue.
  */
 srv.get('/:badge/:repo/:branch', async (req, res) => {
    const data = {
-      sha: null,
-      owner: process.env.REPO_OWNER,
+      owner: process.env['REPO_OWNER'],
       repo: req.params.repo,
       branch: req.params.branch,
-      context: req.params.badge
    }
    // Find head commit of branch
-   const { info } = await request('GET /repos/:owner/:repo/git/refs/heads/:branch', { data });
-   if (info.ref.endsWith('/' + data.branch)) {
-      console.log(`'Request for ${data.branch} ${data.context}`)
-      const report = sheildsCallback(data)
-      // Send report
-      res.setHeader('Content-Type', 'application/json');
-      res.end(JSON.stringify(report));
-   } else {  // Specified repo or branch not found
-      console.error(`${data.repo}/${data.branch} not found`)
-      res.statusCode = 401;
-      res.send(msg);
-  }
+   return request('GET /repos/:owner/:repo/git/refs/heads/:branch', data)
+      .then(response => {
+         data['context'] = req.params.badge;
+         data['sha'] = response.data.object.sha;
+         console.log(`Request for ${data.branch} ${data.context}`)
+         const report = lib.getBadgeData(data);
+         // Send report
+         res.setHeader('Content-Type', 'application/json');
+         res.end(JSON.stringify(report));})
+      .catch(err => {  // Specified repo or branch not found
+         console.error(`${data.owner}/${data.repo}/${data.branch} not found`)
+         res.send((err.status === 404) ? 404 : 500)
+      });
 });
 
 
@@ -224,14 +170,14 @@ srv.get('/:badge/:repo/:branch', async (req, res) => {
  */
 function runTestsMATLAB(job, done) {
    // Go ahead and prepare to run tests
-   sha = job.data['sha']; // Retrieve commit hash
+   let sha = job.data['sha']; // Retrieve commit hash
    // If the repo is a submodule, modify path
-   repo_path = process.env.REPO_PATH;  // FIXME generalize
+   let repo_path = process.env['REPO_PATH'];  // FIXME generalize
    if (job.data['repo'] === 'alyx-matlab' || job.data['repo'] === 'signals') {
       repo_path = repo_path + path.sep + job.data['repo'];}
    // if (job.data['repo'] === 'alyx') { sha = 'dev' }  // For Alyx checkout master
    // Checkout commit  TODO Use shelljs here
-   return checkout = cp.execFile('checkout_ibllib_test.bat ', [sha, repo_path], (error, stdout, stderr) => {
+   return cp.execFile('checkout_ibllib_test.bat ', [sha, repo_path], (error, stdout, stderr) => {
       if (error) { // Send error status
          console.error('Checkout failed: ', stderr);
          job.data['status'] = 'error';
@@ -241,7 +187,7 @@ function runTestsMATLAB(job, done) {
       }
       console.log(stdout)
       let runTests  // the child process
-      const timer = startJobTimer(job, runTests, done);
+      const timer = lib.startJobTimer(job, runTests, done);
 
       // Go ahead with MATLAB tests
       // Run tests in MATLAB
@@ -258,7 +204,7 @@ function runTestsMATLAB(job, done) {
             job.data['description'] = stderr.split(/\r?\n/).filter(fn).join(';');
             done(error); // Propagate
          } else {
-            updateJobFromRecord(job);
+            lib.updateJobFromRecord(job);
             done();
          }
       });
@@ -273,13 +219,13 @@ function runTestsMATLAB(job, done) {
  */
 function runTestsPython(job, done) {
    let runTests  // the child process
-   const timer = startJobTimer(job, runTests, done);
+   const timer = lib.startJobTimer(job, runTests, done);
    let logName = path.join(config.dataPath, 'reports', job.data['sha'], `python_tests-${job.data['sha']}.log`);
 
    // Run tests in Python
    let testFunction = path.resolve(__dirname, 'runAllTests.py');
    if(!fs.existsSync(testFunction)) { done(new Error (`"${testFunction}" not found`)); }
-   let args = [testFunction, '-c', job.data.sha, '-r', process.env.REPO_PATH, '--logdir', `${config.dataPath}`];
+   let args = [testFunction, '-c', job.data.sha, '-r', process.env['REPO_PATH'], '--logdir', `${config.dataPath}`];
    runTests = cp.execFile('python', args, (error, stdout, stderr) => {
       clearTimeout(timer);
       if (error) { // Send error status
@@ -291,7 +237,7 @@ function runTestsPython(job, done) {
          job.data['description'] = stderr.split(/\r?\n/).slice(-idx-1).join(';');
          done(error); // Propagate
       } else {
-         updateJobFromRecord(job);
+         lib.updateJobFromRecord(job);
          done();
       }
    });
@@ -302,6 +248,7 @@ function runTestsPython(job, done) {
    runTests.stdout.pipe(logDump)
    runTests.on('exit', () => { logDump.close(); });
    // runTests.stdout.write = runTests.stderr.write = logDump.write.bind(access);
+   return runTests
 }
 
 
@@ -311,7 +258,7 @@ function runTestsPython(job, done) {
  * @param {Object} job - Job object which is being processed.
  * @param {Function} done - Callback on complete.
  */
-function process(func, job, done) {
+function processJob(func, job, done) {
    // job.data contains the custom data passed when the job was created
    // job.id contains id of this job.
 
@@ -322,7 +269,7 @@ function process(func, job, done) {
    for (let other of others) { other.data.force = false }
    // If lazy, load records to check whether we already have the results saved
    if (job.data.force === false) {  // NB: Strict equality; force by default
-      const updated = updateJobFromRecord(job)
+      const updated = lib.updateJobFromRecord(job)
       if (updated) { return done(); }  // No need to run tests; skip to complete routine
    }
 
@@ -344,10 +291,10 @@ function updateStatus(data, endpoint = null) {
    if (!data.sha) { throw new ReferenceError('SHA undefined') }  // require sha
    let supportedStates = ['pending', 'error', 'success', 'failure'];
    if (supportedStates.indexOf(data.status) === -1) {
-      throw new APIError(`status must be one of "${supportedStates.join('", "')}"`)
+      throw new lib.APIError(`status must be one of "${supportedStates.join('", "')}"`)
    }
    return request("POST /repos/:owner/:repo/statuses/:sha", {
-      owner: data['owner'] || process.env.REPO_OWNER,
+      owner: data['owner'] || process.env['REPO_OWNER'],
       repo: data['repo'],
       headers: {
          authorization: `token ${installationAccessToken}`,
@@ -355,7 +302,7 @@ function updateStatus(data, endpoint = null) {
       },
       sha: data['sha'],
       state: data['status'],
-      target_url: endpoint || `${process.env.WEBHOOK_PROXY_URL}/${ENDPOINT}/${data.sha}`,
+      target_url: endpoint || `${process.env['WEBHOOK_PROXY_URL']}/${ENDPOINT}/${data.sha}`,
       description: data['description'].substring(0, maxN),
       context: data['context']
     });
@@ -379,7 +326,7 @@ async function eventCallback (event) {
      sha: null,  // The head commit sha to test on
      base: null,  // The previous commit sha (for comparing changes in code coverage)
      force: false,  // Whether to run tests when results already cached
-     owner: process.env.REPO_OWNER, // event.payload.repository.owner.login
+     owner: process.env['REPO_OWNER'], // event.payload.repository.owner.login
      repo: event.payload.repository.name,  // The repository name
      status: 'pending',  // The check state to update our context with
      description: null,  // A brief description of what transpired
@@ -389,7 +336,7 @@ async function eventCallback (event) {
   // Double-check the event was intended for our app.  This is also done using the headers before
   // this stage.  None app specific webhooks could be set up and would make it this far.  Could add
   // some logic here to deal with generic webhook requests (i.e. skip check status update).
-  if (event.payload.installation.id !== process.env.GITHUB_APP_IDENTIFIER) {
+  if (event.payload['installation']['id'] !== process.env['GITHUB_APP_IDENTIFIER']) {
     throw AssertionError('Generic webhook events not supported')
   }
 
@@ -402,7 +349,7 @@ async function eventCallback (event) {
     job_template['base'] = pr.base.sha;
     // Check for repo fork; throw error if forked  // TODO Add full stack test for this behaviour
     let isFork = (pr.base.repo.owner.login !== pr.head.repo.owner.login)
-                 || (pr.base.repo.owner.login !== process.env.REPO_OWNER)
+                 || (pr.base.repo.owner.login !== process.env['REPO_OWNER'])
                  || (pr.head.repo.name !== pr.base.repo.name);
     if (isFork) { throw ReferenceError('Forked PRs not supported; check config file') }
     break;
@@ -424,15 +371,15 @@ async function eventCallback (event) {
   const todo = config.events[eventType] || {}  // List of events to process
 
   // Check if ref in ignore list
-  let ref_ignore = ensureArray(todo.ref_ignore || []);
+  let ref_ignore = lib.ensureArray(todo.ref_ignore || []);
   if (ref_ignore.indexOf(ref.split('/').pop()) > -1) { return; }  // Do nothing if in ignore list
 
   // Check if action in actions list, if applicable
-  let actions = ensureArray(todo.actions || []);
+  let actions = lib.ensureArray(todo.actions || []);
   if (event.payload.action && actions && actions.indexOf(event.payload.action) === -1) { return; }
 
   // Validate checks to run
-  const checks = ensureArray(todo.checks || []);
+  const checks = lib.ensureArray(todo.checks || []);
   if (!todo.checks) { return; }  // No checks to perform
 
   // For each check we update it's status and add a job to the queue
@@ -442,7 +389,7 @@ async function eventCallback (event) {
     if (!isString(check)) { throw TypeError('Check must be a string') }
     // Copy job data and update check specific fields
     let data = Object.assign({}, job_template);
-    data.context = `${check}/${process.env.USERDOMAIN}`
+    data.context = `${check}/${process.env['USERDOMAIN']}`
     switch (check) {
       case 'coverage':
         data.description = 'Checking coverage';
@@ -486,9 +433,9 @@ queue.on('finish', job => { // On job end post result to API
   var endpoint
   console.log(`Job ${job.id} complete`)
   if (job.data.context.startsWith('coverage')) {
-    endpoint = `${process.env.WEBHOOK_PROXY_URL}/${ENDPOINT}/coverage/${data.sha}`;
+    endpoint = `${process.env['WEBHOOK_PROXY_URL']}/${ENDPOINT}/coverage/${data.sha}`;
   } else {
-    endpoint = `${process.env.WEBHOOK_PROXY_URL}/${ENDPOINT}/${data.sha}`;
+    endpoint = `${process.env['WEBHOOK_PROXY_URL']}/${ENDPOINT}/${data.sha}`;
   }
   if (job.data.skipPost === true) { return; }
   updateStatus(job.data, endpoint).then(  // Log outcome
@@ -502,5 +449,6 @@ queue.on('finish', job => { // On job end post result to API
 
 
 module.exports = {
-   updateStatus, srv, handler, setAccessToken, eventCallback, runTestsPython, runTestsMATLAB
+   updateStatus, srv, handler, setAccessToken,
+   eventCallback, runTestsPython, runTestsMATLAB, processJob
 }

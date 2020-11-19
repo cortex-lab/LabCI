@@ -15,7 +15,7 @@
  * @todo fix intentions
  */
 const { openTunnel, queue, partial} = require('./lib');
-const { srv, handler, eventCallback, process, runTestsPython, request} = require('./serve');
+const { srv, handler, eventCallback, processJob, runTestsPython} = require('./serve');
 const config = require("./config/config").settings;
 
 
@@ -23,7 +23,7 @@ const config = require("./config/config").settings;
  * When processing a job, run tests in Python.
  * @param {Function} - A function that takes a Job and Done callback.
  */
-queue.process( partial(process)(runTestsPython) );
+queue.process( partial(processJob)(runTestsPython) );
 
 
 /**

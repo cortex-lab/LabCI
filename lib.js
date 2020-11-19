@@ -244,11 +244,70 @@ function compareCoverage(job) {
   }
 }
 
+
+/**
+ * Get the coverage results and build status data for the shields.io coverage badge API.
+ * If test results don't exist, a new job is added to the queue and the message is set to 'pending'
+ * @param {Object} data - An object with the keys 'sha', 'repo', 'owner' and 'context'.
+ * 'context' must be 'coverage' or 'status'.
+ */
+function getBadgeData(data) {
+   let id = data.sha;
+   if (!id) {
+      throw new ReferenceError('Invalid "sha" field in input data')
+   }
+   var report = {'schemaVersion': 1, 'label': data.context === 'status'? 'build' : 'coverage'};
+   // Try to load coverage record
+   let record = loadTestRecords(id);
+   // If no record found
+   if (record.length === 0) {
+      report['message'] = 'pending';
+      report['color'] = 'orange';
+      // Check test isn't already on the pile
+      let onPile = false;
+      for (let job of queue.pile) { if (job.id === id) { onPile = true; break; } }
+      if (!onPile) { // Add test to queue
+         data['skipPost'] = true
+         queue.add(data);
+      }
+   } else {
+      record = Array.isArray(record) ? record.pop() : record;  // in case of duplicates, take last
+      switch (data.context) {
+         case 'status':
+            if (record['status'] === 'error' || !record['coverage']) {
+               report['message'] = 'unknown';
+               report['color'] = 'orange';
+            } else {
+               report['message'] = (record['status'] === 'success' ? 'passing' : 'failing');
+               report['color'] = (record['status'] === 'success' ? 'brightgreen' : 'red');
+            }
+            break;
+         case 'coverage':
+            if (record['status'] === 'error' || !record['coverage']) {
+               report['message'] = 'unknown';
+               report['color'] = 'orange';
+            } else {
+               report['message'] = Math.round(record['coverage'] * 100) / 100 + '%';
+               report['color'] = (record['coverage'] > 75 ? 'brightgreen' : 'red');
+            }
+            break;
+         default:
+            if (!data['context']) {
+               throw new ReferenceError('Context required for badge request')
+            } else {
+               throw new TypeError('Unsupported context badge request')
+            }
+      }
+   }
+   return report;
+}
+
+
 class APIError extends Error {
   //...
 }
 
 module.exports = {
-   ensureArray, loadTestRecords, compareCoverage, computeCoverage,
+   ensureArray, loadTestRecords, compareCoverage, computeCoverage, getBadgeData,
    openTunnel, APIError, queue, partial, startJobTimer, updateJobFromRecord
 }

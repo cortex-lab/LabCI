@@ -1,11 +1,12 @@
 const fs = require('fs');
-const nock = require('nock');
-const sinon = require('sinon');
+const nock = require('nock');  // for mocking outbound requests
+const request = require('supertest')  // for mocking inbound requests
+const sinon = require('sinon');  // for mocking local modules
 const expect = require('chai').expect
 const assert = require('chai').assert
 
 const APIError = require('../lib').APIError
-const { updateStatus, setAccessToken, eventCallback } = require('../serve');
+const { updateStatus, setAccessToken, eventCallback, srv } = require('../serve');
 const queue = require('../lib').queue
 const config = require('../config/config').settings
 
@@ -94,7 +95,7 @@ describe("Github handlers", () => {
      const uri = `/repos/${data['owner']}/${data['repo']}/statuses/${data['sha']}`;
      const requestBodyMatcher = (body) => {
         return body.state === data.status &&
-               body.target_url === `${process.env.WEBHOOK_PROXY_URL}/events/${data.sha}` &&
+               body.target_url === `${process.env.WEBHOOK_PROXY_URL}/logs/${data.sha}` &&
                body.description.length <= 140 &&
                body.context === data.context;
      };
@@ -205,4 +206,67 @@ describe("Github event handler callback", () => {
       queue.pile = [];
       sandbox.restore();
    });
+});
+
+
+/**
+ * This tests the shields.io badge data request callback.  The badge data itself is tested by the
+ * lib tests.  This tests the endpoint.
+ */
+describe('shields callback', () => {
+   var scope;  // Our server mock
+   var info;  // URI parameters
+
+   before(function () {
+      scope = nock('https://api.github.com');
+      queue.process(async (_job, _done) => {});  // nop
+      info = {
+         repo: 'Hello-World',
+         owner: 'Codertocat',
+         branch: 'develop'
+      };
+   });
+
+   it('expect coverage response', (done) => {
+      // Set up response to GitHub API query
+      // GET /repos/:owner/:repo/git/refs/heads/:branch
+      scope.get(`/repos/${info.owner}/${info.repo}/git/refs/heads/${info.branch}`)
+           .reply(200, {
+              ref: `ref/heads/${info.branch}`,
+              object: {
+                 sha: 'cabe27e5c8b8cb7cdc4e152f1cf013a89adc7a71'
+              }
+           });
+
+      request(srv)
+         .get(`/coverage/${info.repo}/${info.branch}`)
+         .expect('Content-Type', 'application/json')
+         .expect(200)
+         .end(function (err, res) {
+            scope.isDone();
+            if (err) return done(err);
+            expect(res.body).deep.keys([
+               'schemaVersion',
+               'label',
+               'message',
+               'color'
+            ]);
+            done();
+         });
+   });
+
+   it('expect errors', (done) => {
+      // Set up response to GitHub API query
+      scope.get(`/repos/${info.owner}/${info.repo}/git/refs/heads/${info.branch}`).reply(404);
+
+      request(srv)
+         .get(`/coverage/${info.repo}/${info.branch}`)
+         .expect(404)
+         .end(function (err) {
+            scope.isDone();
+            if (err) return done(err);
+            done();
+         });
+   });
+
 });
