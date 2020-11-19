@@ -14,8 +14,8 @@
  * @todo rename context to description and use context to track posts
  * @todo fix intentions
  */
-const { openTunnel, queue, partial} = require('./lib');
-const { srv, handler, eventCallback, processJob, runTestsPython} = require('./serve');
+const { openTunnel, queue, partial, shortCircuit} = require('./lib');
+const { srv, handler, eventCallback, runTestsPython} = require('./serve');
 const config = require("./config/config").settings;
 
 
@@ -23,7 +23,7 @@ const config = require("./config/config").settings;
  * When processing a job, run tests in Python.
  * @param {Function} - A function that takes a Job and Done callback.
  */
-queue.process( partial(processJob)(runTestsPython) );
+queue.process( partial(shortCircuit)(runTestsPython) );
 
 
 /**

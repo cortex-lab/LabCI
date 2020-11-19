@@ -46,7 +46,6 @@ const app = new App({
 const createHandler = require('github-webhook-handler');
 const handler = createHandler({ path: '/github', secret: secret, events: supportedEvents});
 
-
 /**
  * Fetch and assign the installation access token.  Should be called each time a POST is made to
  * our app's endpoint.
@@ -163,6 +162,10 @@ srv.get('/:badge/:repo/:branch', async (req, res) => {
 
 ///////////////////// QUEUE EVENTS /////////////////////
 
+function prepareEnv() {
+
+}
+
 /**
  * Called by queue process.  Here we checkout git and call MATLAB.
  * @param {Object} job - Job object which is being processed.
@@ -176,12 +179,12 @@ function runTestsMATLAB(job, done) {
    if (job.data['repo'] === 'alyx-matlab' || job.data['repo'] === 'signals') {
       repo_path = repo_path + path.sep + job.data['repo'];}
    // if (job.data['repo'] === 'alyx') { sha = 'dev' }  // For Alyx checkout master
-   // Checkout commit  TODO Use shelljs here
+   // Checkout commit & prepare environment
    return cp.execFile('checkout_ibllib_test.bat ', [sha, repo_path], (error, stdout, stderr) => {
       if (error) { // Send error status
          console.error('Checkout failed: ', stderr);
          job.data['status'] = 'error';
-         job.data['description'] = `Failed to checkout code: ${stderr}`;
+         job.data['description'] = `Failed to prepare env: ${stderr}`;
          done(error); // Propagate error
          return;
       }
@@ -249,32 +252,6 @@ function runTestsPython(job, done) {
    runTests.on('exit', () => { logDump.close(); });
    // runTests.stdout.write = runTests.stderr.write = logDump.write.bind(access);
    return runTests
-}
-
-
-/**
- * Define how to process tests.  Here we checkout git and call MATLAB.
- * @param {Function} func - The tests function to run, e.g. `runTestsMATLAB` or `runTestsPython`.
- * @param {Object} job - Job object which is being processed.
- * @param {Function} done - Callback on complete.
- */
-function processJob(func, job, done) {
-   // job.data contains the custom data passed when the job was created
-   // job.id contains id of this job.
-
-   // To avoid running our tests twice, set the force flag to false for any other jobs in pile that
-   // have the same commit ID
-   let sha = job.data.sha;
-   let others = queue.pile.filter(o => (o.data.sha === sha) && (o.id !== job.id));
-   for (let other of others) { other.data.force = false }
-   // If lazy, load records to check whether we already have the results saved
-   if (job.data.force === false) {  // NB: Strict equality; force by default
-      const updated = lib.updateJobFromRecord(job)
-      if (updated) { return done(); }  // No need to run tests; skip to complete routine
-   }
-
-   // Go ahead and prepare to run tests  // TODO Could move to callback
-   return func(job, done);
 }
 
 
@@ -450,5 +427,5 @@ queue.on('finish', job => { // On job end post result to API
 
 module.exports = {
    updateStatus, srv, handler, setAccessToken,
-   eventCallback, runTestsPython, runTestsMATLAB, processJob
+   eventCallback, runTestsPython, runTestsMATLAB, processJob: shortCircuit
 }

@@ -1,4 +1,5 @@
 const fs = require('fs');
+const path = require('path');
 const nock = require('nock');  // for mocking outbound requests
 const request = require('supertest')  // for mocking inbound requests
 const sinon = require('sinon');  // for mocking local modules
@@ -18,6 +19,8 @@ const token = 'eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJpYXQiOjAsImV4cCI6NTcwLCJp
               'oaRoL3QzjsZfdme5FWauujaAbeRVbWsmmWinynWlj2nYKTv3oW6L1w_TyRdwR5u_w4HoaCTvF7YcQD_' +
               'B1pFYE7nzLp6ZZ-yeotjMEB_8gw';
 const APP_ID = process.env.GITHUB_APP_IDENTIFIER;
+const ENDPOINT = 'logs';  // The URL endpoint for fetching status check details
+const SHA = 'cabe27e5c8b8cb7cdc4e152f1cf013a89adc7a71'
 
 
 /**
@@ -61,7 +64,7 @@ describe("Github handlers", () => {
 
    it('updateStatus should post to given endpoint', (done) => {
      const data = {
-        sha: '9f4f7948',
+        sha: SHA,
         owner: 'okonkwe',
         repo: 'borneo-function',
         status: 'success',
@@ -95,7 +98,7 @@ describe("Github handlers", () => {
      const uri = `/repos/${data['owner']}/${data['repo']}/statuses/${data['sha']}`;
      const requestBodyMatcher = (body) => {
         return body.state === data.status &&
-               body.target_url === `${process.env.WEBHOOK_PROXY_URL}/logs/${data.sha}` &&
+               body.target_url === `${process.env.WEBHOOK_PROXY_URL}/${ENDPOINT}/${data.sha}` &&
                body.description.length <= 140 &&
                body.context === data.context;
      };
@@ -114,7 +117,7 @@ describe("Github handlers", () => {
 
    it('updateStatus should validate data', (done) => {
       expect(() => updateStatus({sha: null})).to.throw(ReferenceError, 'SHA');
-      let testable = () => updateStatus({status: 'working', sha: 'h67t8tg66g'});
+      let testable = () => updateStatus({status: 'working', sha: SHA});
       expect(testable).to.throw(APIError, 'status');
       scope.isDone();
       done();
@@ -234,7 +237,7 @@ describe('shields callback', () => {
            .reply(200, {
               ref: `ref/heads/${info.branch}`,
               object: {
-                 sha: 'cabe27e5c8b8cb7cdc4e152f1cf013a89adc7a71'
+                 sha: SHA
               }
            });
 
@@ -269,4 +272,78 @@ describe('shields callback', () => {
          });
    });
 
+});
+
+
+/**
+ * This tests the logs endpoint endpoint.  When provided a SHA it should read a log file and return
+ * it as HTML.
+ */
+describe('logs endpoint', () => {
+   var stub;  // Our fs stub
+   var logData;  // The text in our log
+
+   before(function () {
+      const logFile = path.join(config.dataPath, 'reports', SHA, `${config.program}_tests-${SHA}.log`);
+      logData = 'hello world';
+      stub = sinon
+         .stub(fs, 'readFile')
+         .withArgs(logFile, 'utf8')
+         .yieldsAsync(null, logData);
+   });
+
+   it('expect HTML log', (done) => {
+      request(srv)
+         .get(`/${ENDPOINT}/${SHA}`)
+         .expect(200)
+         .end(function (err, res) {
+            if (err) return done(err);
+            expect(res.text).contains(logData)
+            expect(res.text).to.match(/^<html.*>.+<\/html>$/)
+            done();
+         });
+   });
+
+   it('expect not found', (done) => {
+      sinon.restore();
+      request(srv)
+         .get(`/${ENDPOINT}/${SHA}`)
+         .expect(404)
+         .end(function (err, res) {
+            if (err) return done(err);
+            expect(res.text).contains(`${SHA} not found`)
+            done();
+         });
+   });
+});
+
+
+/**
+ * This tests the coverage endpoint endpoint.  Directly accessing endpoint should return 403.
+ */
+xdescribe('coverage endpoint', () => {
+
+   before(function() {
+      let reportsDir = path.join(config.dataPath, 'reports');
+      fs.mkdir(reportsDir, (err) => {
+         if (err) throw err;
+         fs.writeFile(path.join(reportsDir, 'foobar.log'), '', (err) => { if (err) throw err; })
+      });
+   })
+
+   it('expect forbidden', (done) => {
+      request(srv)
+         .get(`/${ENDPOINT}/coverage`)
+         .expect(403)
+         .end(function (err) {
+            err? done(err) : done();
+         });
+   });
+
+   after(function() {
+      fs.rmdir(path.join(config.dataPath, 'reports'), {recursive: true}, err => {
+         if (err) throw err;
+      })
+
+   })
 });

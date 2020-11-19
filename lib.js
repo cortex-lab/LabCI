@@ -78,7 +78,7 @@ function saveTestRecords(r) {
  */
 function updateJobFromRecord(job) {
     let rec = loadTestRecords(job.data['sha']);  // Load test result from json log
-    if (rec.length === 0) { return false; }  // No record found
+    if (rec.length === 0) { return false; }      // No record found
     rec = Array.isArray(rec) ? rec.pop() : rec;  // in case of duplicates, take last
     job.data['status'] = rec['status'];
     job.data['description'] = rec['description'];
@@ -106,6 +106,32 @@ function partial(func) {
          }
       }
    };
+}
+
+
+/**
+ * Check if job already has record, if so, update from record and finish, otherwise call tests function.
+ * @param {Function} func - The tests function to run, e.g. `runTestsMATLAB` or `runTestsPython`.
+ * @param {Object} job - Job object which is being processed.
+ * @param {Function} done - Callback on complete.
+ */
+function shortCircuit(func, job, done) {
+   // job.data contains the custom data passed when the job was created
+   // job.id contains id of this job.
+
+   // To avoid running our tests twice, set the force flag to false for any other jobs in pile that
+   // have the same commit ID
+   let sha = job.data.sha;
+   let others = queue.pile.filter(o => (o.data.sha === sha) && (o.id !== job.id));
+   for (let other of others) { other.data.force = false }
+   // If lazy, load records to check whether we already have the results saved
+   if (job.data.force === false) {  // NB: Strict equality; force by default
+      const updated = updateJobFromRecord(job)
+      if (updated) { return done(); }  // No need to run tests; skip to complete routine
+   }
+
+   // Go ahead and prepare to run tests
+   return func(job, done);
 }
 
 
@@ -309,5 +335,5 @@ class APIError extends Error {
 
 module.exports = {
    ensureArray, loadTestRecords, compareCoverage, computeCoverage, getBadgeData,
-   openTunnel, APIError, queue, partial, startJobTimer, updateJobFromRecord
+   openTunnel, APIError, queue, partial, startJobTimer, updateJobFromRecord, shortCircuit
 }
