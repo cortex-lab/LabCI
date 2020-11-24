@@ -77,7 +77,7 @@ class Queue extends EventEmitter {
       job.isRunning = false; // set false (will emit 'end')
       if( err ) { obj.emit('error', err, job); }
       else {obj.emit('complete', job)}
-      obj.emit('finish', job);
+      obj.emit('finish', null, job);
       }
 
   }
@@ -85,12 +85,13 @@ class Queue extends EventEmitter {
   /**
    * Create callback to be triggered when process function completes.
    * @param {Function} func - Function to call with job and done callback when.
+   * @todo make done callback part of job obj?
    */
   process(func) {
     this._process = async (job) => {
-      var done = this.createDoneCallback(job);
+      job.done = this.createDoneCallback(job);
       job.isRunning = true;
-      setImmediate(func, job, done);
+      setImmediate(func, job, job.done);
       console.log('Job running')
     };
   }

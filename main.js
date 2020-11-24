@@ -14,27 +14,31 @@
  * @todo rename context to description and use context to track posts
  * @todo fix intentions
  */
-const { openTunnel, queue, partial, shortCircuit} = require('./lib');
-const { srv, handler, eventCallback, runTestsPython} = require('./serve');
+const { openTunnel, queue, shortCircuit} = require('./lib');
+const { srv, handler, eventCallback, runTests, prepareEnv} = require('./serve');
 const config = require("./config/config").settings;
 
 
 /**
- * When processing a job, run tests in Python.
- * @param {Function} - A function that takes a Job and Done callback.
+ * Build queue processing pipeline.
+ * @todo make into Promise chain
  */
-queue.process( partial(shortCircuit)(runTestsPython) );
+// const applyAsync = (acc, val) => acc.then(val);
+// const composeAsync = (...funcs) => x => funcs.reduce(applyAsync, Promise.resolve(x));
+// const run = composeAsync(shortCircuit, prepareEnv, runTests);
+const run = (job) => {
+   let run = () => prepareEnv(job, runTests);
+   return shortCircuit(job, run);
+};
+queue.process((job) => { shortCircuit(job, run); })
 
 
 /**
  * Callback triggered when job completes.  Called when all tests run to end.
  * @param {Object} job - Job object which has finished being processed.
+ * @todo change coverage url from null to log location
  */
-queue.on('complete', job => { });
-
-
-// Let fail silently: we report error via status
-queue.on('error', err => {});
+// queue.on('complete', job => {});
 
 
 // Log handler errors

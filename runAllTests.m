@@ -1,4 +1,4 @@
-function runAllTests(id, repo)
+function runAllTests(id, repo, logDir)
 %% Script for running all Rigbox tests
 % To be called for code checks and the like
 % TODO May add flags for levels of testing
@@ -10,7 +10,7 @@ if nargin < 2; repo = 'rigbox'; end
 if nargin < 1; id = []; end
 try
   %% Initialize enviroment
-  dbPath = 'C:\Users\Experiment\db.json'; % TODO Load from config file
+  dbPath = fullfile(logDir, 'db.json'); % TODO Load from config file
   fprintf('Running tests\n')
   fprintf('Repo = %s, sha = %s\n', repo, id)
   origDir = pwd;
@@ -24,19 +24,19 @@ try
   import matlab.unittest.plugins.codecoverage.CoberturaFormat
   % Suppress warnings about shadowed builtins in utilities folder
   warning('off','MATLAB:dispatcher:nameConflict')
-  
+
   %% Gather Rigbox main tests
   main_tests = testsuite('IncludeSubfolders', true);
-  
+
   %% Gather signals tests
   root = getOr(dat.paths,'rigbox');
   signals_tests = testsuite(fullfile(root, 'signals', 'tests'), ...
     'IncludeSubfolders', true);
-  
+
   %% Gather alyx-matlab tests
   alyx_tests = testsuite(fullfile(root, 'alyx-matlab', 'tests'), ...
     'IncludeSubfolders', true);
-  
+
   %% Filter & run
   % the suite is automatically sorted based on shared fixtures. However, if
   % you add, remove, or reorder elements after initial suite creation, call
@@ -50,27 +50,27 @@ try
   elseif strcmp(repo, 'signals')
     all_tests = signals_tests;
   end
-  
+
   % Filter out performance tests
   % @todo Run performance tests
   % @body Currently the performance tests are entirely filtered out
   is_perf = @(t) contains(t.Name, 'perftest', 'IgnoreCase', true);
   [~, all_tests] = fun.filter(is_perf, all_tests);
-  
+
   runner = TestRunner.withTextOutput;
   reportFile = fullfile(fileparts(dbPath), 'CoverageResults.xml');
   reportFormat = CoberturaFormat(reportFile);
   plugin = CodeCoveragePlugin.forFolder(root, 'Producing', reportFormat, ...
       'IncludingSubfolders', true);
   runner.addPlugin(plugin)
-  
+
   results = runner.run(all_tests);
   assert(now - file.modDate(reportFile) < 0.001, ...
     'Coverage file may not have been updated')
-  
+
   % If no commit id set, simply exit the function
   if isempty(id); return; end
-  
+
   %% Diagnostics
   % Summarize the results of the tests and write results to the JSON file
   % located at dbPath

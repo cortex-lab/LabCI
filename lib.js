@@ -3,10 +3,27 @@
  */
 const localtunnel = require('localtunnel');
 const config = require('./config/config').settings
+const createDebug  = require('debug');
 const Coverage = require('./coverage');
 const queue = new (require('./queue.js'))()  // The queue object for our app to use
 const fs = require('fs')
 
+/**
+ * Return a shortened version of an int or string id
+ * @param {any} v - ID to shorten.
+ * @param {int} len - Maximum number of chars.
+ * @returns {String} v as a short string.
+ */
+function shortID(v, len=7) {
+   if (Array.isArray(v)) { return v.map(v => shortID(v, len)); }
+   if (Number.isInteger(v)) { v = v.toString(); }
+   if (typeof v === 'string' || v instanceof String) { v = v.substr(0, len); }
+   return v;  // If not string, array or number, leave unchanged
+}
+
+createDebug.formatters.g = shortID
+const log = createDebug('ci');
+const _log = log.extend('lib');
 
 /**
  * Util wraps input in array if not already one
@@ -18,10 +35,12 @@ function ensureArray(x) { return (Array.isArray(x))? x : [x]; }
 
 /**
  * Load test results from .db.json file.  NB: Size and order of returned records not guaranteed
- * @param {string, array} id - Function to call with job and done callback when.
+ * @param {string, array} id - Commit SHA.
  */
 function loadTestRecords(id) {
-  // FIXME Check file exists, catch JSON parse error
+  // FIXME Catch JSON parse error
+  _log('Loading test records from %s for id %g', config.dbFile, id);
+  if (!id) { throw new TypeError('invalid id'); }
   if(!fs.existsSync(config.dbFile)) {
     console.log('Records file not found');
     return []
@@ -77,15 +96,22 @@ function saveTestRecords(r) {
  * @returns {boolean} - true if record was found
  */
 function updateJobFromRecord(job) {
+    let log = _log.extend('updateJobFromRecord');
+    log('Loading test records for head commit %g', job.data['sha']);
     let rec = loadTestRecords(job.data['sha']);  // Load test result from json log
-    if (rec.length === 0) { return false; }      // No record found
+    if (rec.length === 0) {
+       log('No record found, return false');
+       return false;
+    }      // No record found
     rec = Array.isArray(rec) ? rec.pop() : rec;  // in case of duplicates, take last
     job.data['status'] = rec['status'];
     job.data['description'] = rec['description'];
     job.data['coverage'] = ('coverage' in rec)? rec['coverage'] : null;
     if (!job.data['coverage']) {
+       log('Coverage missing, computing from XML');
        computeCoverage(job);  // Attempt to load from XML
     } else if ((job.data.context || '').startsWith('coverage')) {
+       log('Comparing coverage to base commit');
        compareCoverage(job);  // If this test was to ascertain coverage, call comparison function
     }
    return true;
@@ -108,16 +134,30 @@ function partial(func) {
    };
 }
 
+function chain(func) {
+   return function curried(...args) {
+      if (args.length >= func.length) {
+         return func.apply(this, args);
+      } else {
+         return function(...args2) {
+            return curried.apply(this, args2.concat(args));
+         }
+      }
+   };
+}
+
+
 
 /**
  * Check if job already has record, if so, update from record and finish, otherwise call tests function.
- * @param {Function} func - The tests function to run, e.g. `runTestsMATLAB` or `runTestsPython`.
  * @param {Object} job - Job object which is being processed.
- * @param {Function} done - Callback on complete.
+ * @param {Function} func - The tests function to run, e.g. `runTestsMATLAB` or `runTestsPython`.
  */
-function shortCircuit(func, job, done) {
+function shortCircuit(job, func=null) {
    // job.data contains the custom data passed when the job was created
    // job.id contains id of this job.
+   let log = _log.extend('shortCircuit');
+   log('Checking whether to load from saved');
 
    // To avoid running our tests twice, set the force flag to false for any other jobs in pile that
    // have the same commit ID
@@ -126,12 +166,12 @@ function shortCircuit(func, job, done) {
    for (let other of others) { other.data.force = false }
    // If lazy, load records to check whether we already have the results saved
    if (job.data.force === false) {  // NB: Strict equality; force by default
-      const updated = updateJobFromRecord(job)
-      if (updated) { return done(); }  // No need to run tests; skip to complete routine
+      _log('Updating job data directly from record for job #%g', job.id);
+      if (updateJobFromRecord(job)) { return job.done(); }  // No need to run tests; skip to complete routine
    }
 
    // Go ahead and prepare to run tests
-   return func(job, done);
+   if (func) { return func(job); }
 }
 
 
@@ -165,10 +205,10 @@ function startJobTimer(job, childProcess, done=null) {
    const timeout = config.timeout || 8*60000;  // How long to wait for the tests to run
    return setTimeout(() => {
       console.log('Max test time exceeded');
-      job.data['status'] = 'error';
-      job.data['description'] = `Tests stalled after ~${(timeout / 60000).toFixed(0)} min`;
+      let message = `Tests stalled after ~${(timeout / 60000).toFixed(0)} min`;
       childProcess.kill();
-      if (done !== null) { done(new Error('Job stalled')); }
+      if (done === null) { done = job.done; }
+      done(new Error(message));
    }, timeout);
 }
 
@@ -218,9 +258,15 @@ function computeCoverage(job) {
  * @todo Add support for forked PRs
  */
 function compareCoverage(job) {
+  let log = _log.extend('compareCoverage');
+  if (!(job.data.sha && job.data.base)) {
+     throw new ReferenceError('No sha (head) or base commit in job data');
+  }
+  log('Comparing coverage for %g -> %g', job.data.sha, job.data.base);
   var records;
   if (!job.coverage) {
-    records = loadTestRecords([job.sha, job.data.base]);
+    log('No coverage in job data; loading from records');
+    records = loadTestRecords([job.data.sha, job.data.base]);
     // Filter duplicates just in case
     records = records.filter((set => o => !set.has(o.commit) && set.add(o.commit))(new Set));
   } else {
@@ -228,25 +274,34 @@ function compareCoverage(job) {
     curr.commit = curr.sha;  // rename field
     records = [curr, loadTestRecords(job.data.base)];
   }
+  log('The following records were found: %O', records);
   const has_coverage = records.every(o => (typeof o.coverage !== 'undefined' && o.coverage > 0));
 
   // Check if any errored or failed to update coverage
   if (records.filter(o => o.status === 'error').length > 0) {
+    log('One or more have error status; cannot compare coverage');
     job.data.status = 'failure';
     job.data.description = 'Failed to determine coverage as tests incomplete due to errors';
 
   // Both records present and they have coverage
   } else if (records.length === 2 && has_coverage) {
+    log('Calculating coverage difference');
     // Ensure first record is for head commit
     if (records[0].commit === job.data.base) { records.reverse() }
     // Calculate coverage change
-    let coverage = records[0].coverage - records[1].coverage;
-    job.data.status = (coverage > 0 ? 'success' : 'failure');
-    job.data.description = `Coverage ${coverage > 0 ? 'increased' : 'decreased'} ` +
+    let delta = records[0].coverage - records[1].coverage;
+    let passed = config.strict_coverage? delta > 0 : delta >= 0;
+    job.data.status = (passed ? 'success' : 'failure');
+    if (delta === 0) {
+       job.data.description = `Coverage remains at ${Math.round(records[1].coverage * 100) / 100}%`;
+    } else {
+       job.data.description = `Coverage ${passed ? 'increased' : 'decreased'} ` +
                            `from ${Math.round(records[1].coverage * 100) / 100}% ` +
-                           `to ${Math.round(records[0].coverage * 100) / 100}%`
+                           `to ${Math.round(records[0].coverage * 100) / 100}%`;
+    }
 
   } else { // We need to add a new job for incomplete coverage
+    log('Missing record for base commit; adding new jobs');
     // TODO This could be refactored for efficiency
     // Ensure we have coverage for base branch
     queue.add({
@@ -261,6 +316,7 @@ function compareCoverage(job) {
              skipPost: false, // don't post, to be left for next job
              force: false,  // should skip if coverage already saved
              sha: job.data.sha,
+             base: job.data.base,
              owner: process.env.REPO_OWNER,
              repo: job.data.repo,
              context: job.data.context  // conserve context
@@ -334,6 +390,6 @@ class APIError extends Error {
 }
 
 module.exports = {
-   ensureArray, loadTestRecords, compareCoverage, computeCoverage, getBadgeData,
+   ensureArray, loadTestRecords, compareCoverage, computeCoverage, getBadgeData, log, shortID,
    openTunnel, APIError, queue, partial, startJobTimer, updateJobFromRecord, shortCircuit
 }

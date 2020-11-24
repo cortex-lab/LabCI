@@ -82,7 +82,7 @@ if __name__ == "__main__":
       python runAllTests.py -l C:\Users\User\AppData\Roaming\CI
       python runAllTests.py -l ~/.ci
     """
-    # logfile = Path(__file__).parent.joinpath('tests.log')
+    # logfile = Path(__file__).parent.joinpath('lines.txt')
     root = Path(__file__).parent.absolute()  # Default root folder
     repo_dir = Path(ibllib.__file__).parent  # Default repository source for coverage
     version = ver()

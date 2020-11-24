@@ -1,15 +1,11 @@
-const userSettings = require('./settings.json') || {}  // User settings
-const path = require('path')
-env = process.env.NODE_ENV || 'production'
+const userSettings = require('./settings.json') || {};  // User settings
+const path = require('path');
+env = process.env.NODE_ENV || 'production';
 const appdata = process.env.APPDATA || process.env.HOME;
-const dataPath = process.env.APPDATA? path.join(appdata, 'CI') : path.join(appdata, '.ci')
-const fixtureDir = path.resolve(__dirname, '..', 'test', 'fixtures')
-const dbFilename = '.db.json'
+const dataPath = process.env.APPDATA? path.join(appdata, 'CI') : path.join(appdata, '.ci');
+const fixtureDir = path.resolve(__dirname, '..', 'test', 'fixtures');
+const dbFilename = '.db.json';
 let settings;
-
-// if (env.startsWith('test')) {
-//    require('dotenv').config({ path: '../test/fixtures/env' })
-// }
 
 // Defaults for when there's no user file; will almost certainly fail
 defaults = {
@@ -18,6 +14,7 @@ defaults = {
     listen_port: 3000,
     timeout: 8*60000,
     program: "python",
+    strict_coverage: false,
     events: {
         push: {
             checks: null,
@@ -25,7 +22,7 @@ defaults = {
         },
         pull_request: {
             checks: ["continuous-integration", "coverage"],
-            actions: ["opened", "synchronize"],
+            actions: ["opened", "synchronize", "reopen"],
             ref_ignore: ["documentation", "gh-pages"]
         }
     },
@@ -37,7 +34,8 @@ defaults = {
 testing = {
     listen_port: 3000,
     timeout: 60000,
-    program: "python",
+    setup_function: null,
+    test_function: "run_tests.BAT",
     events: {
         push: {
             checks: "continuous-integration",

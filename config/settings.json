@@ -1,7 +1,10 @@
 {
+  "setup_function": "prep_env.BAT",
+  "test_function": "run_tests.BAT",
   "listen_port": 3000,
   "timeout": 480000,
   "program": "python",
+  "strict_coverage": false,
   "events": {
     "push": {
       "checks": null,
@@ -9,7 +12,7 @@
     },
     "pull_request": {
       "checks": ["continuous-integration", "coverage"],
-      "actions": ["opened", "synchronize"],
+      "actions": ["opened", "synchronize", "reopened"],
       "ref_ignore": ["documentation", "gh-pages"]
     }
   }

@@ -8,12 +8,15 @@ const cp = require('child_process');
 
 const express = require('express');
 const srv = express();
+const shell = require('shelljs');
 const { App } = require('@octokit/app');
 const { request } = require('@octokit/request');
 
 const config = require('./config/config').settings;
 const queue = require('./lib').queue;  // shared Queue from lib
+const log = require('./lib').log;
 const lib = require('./lib');
+
 
 // The installation token is a temporary token required for making changes to the Github Checks.
 // The token will be set each time a new Github request is received.
@@ -102,9 +105,10 @@ srv.post('/github', async (req, res, next) => {
  * formatted copy of the stdout for the job's process.
  */
 srv.get(`/${ENDPOINT}/:id`, function (req, res) {
-  console.log('Request for test log for commit ' + req.params.id.substring(0,6))
+   let id = lib.shortID(req.params.id);
+  console.log('Request for test log for commit ' + id)
   let program = config.program || 'matlab';
-  let log = path.join(config.dataPath, 'reports', req.params.id, `${program}_tests-${req.params.id}.log`)
+  let log = path.join(config.dataPath, 'reports', req.params.id, `std_output-${id}.log`)
   fs.readFile(log, 'utf8', (err, data) => {
     if (err) {
     	res.statusCode = 404;
@@ -162,20 +166,156 @@ srv.get('/:badge/:repo/:branch', async (req, res) => {
 
 ///////////////////// QUEUE EVENTS /////////////////////
 
-function prepareEnv() {
+function runTests(job) {
+   const debug = log.extend('runTests');
+   let runTests  // the child process
+   debug('starting job timer');
+   const timer = lib.startJobTimer(job, runTests);
 
+   // Go ahead with tests
+   const sha = job.data['sha'];
+   const repoPath = getRepoPath(job.data.repo);
+   const logName = path.join(config.dataPath, 'reports', sha, `std_output-${lib.shortID(sha)}.log`);
+   fs.mkdir(path.join(config.dataPath, 'reports', sha), { recursive: true }, (err) => {
+      if (err) throw err;
+   });
+   debug('starting test child process %s', config.test_function);
+   runTests = cp.execFile(config.test_function, [sha, repoPath, config.dataPath], (error, stdout, stderr) => {
+      debug('clearing job timer');
+      clearTimeout(timer);
+      if (error) { // Send error status
+         debug('error from test function: %o', error)
+         let message;
+         // Isolate error from log
+         // For MATLAB return the line that begins with 'Error'
+         let fn = (str) => { return str.startsWith('Error in \'') };
+         message = stderr.split(/\r?\n/).filter(fn).join(';');
+         // For Python, cat from the lost line that doesn't begin with whitespace
+         if (job.data['description'] === '') {
+            let errArr = stderr.split(/\r?\n/);
+            let idx = errArr.reverse().findIndex(v => {return v.match('^\\S')});
+            message = stderr.split(/\r?\n/).slice(-idx-1).join(';');
+         }
+         job.done(new Error(message));  // Propagate
+      } else {
+         if (!lib.updateJobFromRecord(job)) {
+            job.done(new Error('Failed to return test result'));
+         } else {
+            job.done();
+         }
+      }
+   });
+
+   // Write output to file
+   runTests.stdout.pipe(process.stdout);  // Pipe to display
+   let logDump = fs.createWriteStream(logName, { flags: 'a' });
+   runTests.stdout.pipe(logDump);
+   runTests.on('exit', () => { logDump.close(); });
+   // runTests.stdout.write = runTests.stderr.write = logDump.write.bind(access);
+   return runTests;
+}
+
+function prepareEnv(job, callback) {
+   log('Preparing environment for job #%g', job.id)
+   const repoPath = getRepoPath(job.data.repo);
+   switch (config.setup_function) {
+      case undefined:
+         // run some basic git commands
+         checkout(repoPath, job.data.sha);
+         return callback(job);
+      case null:  // No prep required
+         return callback(job);
+      default:
+         const sha = job.data['sha'];
+         const logName = path.join(config.dataPath, 'reports', sha, `std_output-${lib.shortID(sha)}.log`);
+         const prepEnv = cp.execFile(config.setup_function, [sha, repoPath, logName], (err, stdout, stderr) => {
+            if (err) {
+               console.error('Checkout failed: ', stderr);
+               job.done(new Error(`Failed to prepare env: ${stderr}`)); // Propagate error
+               return;
+            }
+            callback(job);
+         });
+         prepEnv.stdout.pipe(process.stdout);
+         let logDump = fs.createWriteStream(logName, { flags: 'w' });
+         prepEnv.stdout.pipe(logDump);
+         prepEnv.on('exit', () => { logDump.close(); });
+         return prepEnv;
+   }
+}
+
+/**
+ * Checkout Git repository.
+ * @param {String} repoPath - The path of the repository
+ * @param {String} ref - A commit SHA or branch name
+ * @todo Add error handling
+ */
+function checkout(repoPath, ref) {
+   if (!shell.which('git')) { throw new Error('Git not found on path'); }
+   let verify = (cmd) => { if (!cmd) {
+      shell.popd();
+      throw new Error('Failed to checkout: ' + cmd.stderr);
+   } };
+   if (!shell.pushd(repoPath)) {
+      shell.mkdir(path.resolve(repoPath + path.sep + '..'));
+      shell.pushd(repoPath);
+      verify(shell.exec(`git clone https://github.com/${env.process['REPO_OWNER']}/${env.process['REPO_NAME']}.git`));
+      verify(shell.exec(`git checkout ${ref}`));
+   } else {
+      verify(shell.exec('git fetch -a'));
+      verify(shell.exec('git reset --hard HEAD'));
+      verify(shell.exec(`git checkout ${ref}`));
+      verify(shell.exec('git submodule update --init --recursive'));
+      verify(shell.exec('git submodule foreach git reset --hard HEAD'));
+      verify(shell.exec('git status'));
+   }
+   shell.popd();
+}
+
+
+/**
+ * Lists the submodules within a Git repository.  If none are found null is returned.
+ * @param {String} repoPath - The path of the repository
+ * @returns {Array} A list of submodule names, or null if none were found
+ */
+function listSubmodules(repoPath) {
+   if (!shell.which('git')) { throw new Error('Git not found on path'); }
+   shell.pushd(repoPath);
+   let listModules = 'git config --file .gitmodules --get-regexp path | awk \'{ print $2 }\'';
+   const modules = shell.exec(listModules);
+   shell.popd();
+   return (!modules.code && modules.stdout !== '')? modules.split('\n') : null;
+}
+
+/**
+ * Get the corresponding repository path for a given repo.  The function first checks the settings.
+ * If the `repos` field doesn't exist, the path in ENV is used.  If the name is not a key in the
+ * `repos` object then we check each repo path for submodules and return the first matching
+ * submodule path.  Otherwise returns null.
+ * @param {String} name - The name of the repository
+ * @returns {String} The repository path if found
+ */
+function getRepoPath(name) {
+   if (!config.repos) { return process.env['REPO_PATH']; }  // Legacy, to remove
+   if (config.repos.name) { return config.repos.name; }  // Found path, return
+   for (let repo of config.repos) {
+      let modules = listSubmodules(repo);
+      if (modules && modules.includes(name)) {
+         // If the repo is a submodule, modify path
+         return repo + path.sep + name;
+      }
+   }
 }
 
 /**
  * Called by queue process.  Here we checkout git and call MATLAB.
  * @param {Object} job - Job object which is being processed.
- * @param {Function} done - Callback on complete.
  */
-function runTestsMATLAB(job, done) {
+function runTestsMATLAB(job) {
    // Go ahead and prepare to run tests
    let sha = job.data['sha']; // Retrieve commit hash
    // If the repo is a submodule, modify path
-   let repo_path = process.env['REPO_PATH'];  // FIXME generalize
+   let repo_path = getRepoPath(data.repo);  // FIXME generalize
    if (job.data['repo'] === 'alyx-matlab' || job.data['repo'] === 'signals') {
       repo_path = repo_path + path.sep + job.data['repo'];}
    // if (job.data['repo'] === 'alyx') { sha = 'dev' }  // For Alyx checkout master
@@ -183,32 +323,29 @@ function runTestsMATLAB(job, done) {
    return cp.execFile('checkout_ibllib_test.bat ', [sha, repo_path], (error, stdout, stderr) => {
       if (error) { // Send error status
          console.error('Checkout failed: ', stderr);
-         job.data['status'] = 'error';
-         job.data['description'] = `Failed to prepare env: ${stderr}`;
-         done(error); // Propagate error
+         job.done(new Error(`Failed to prepare env: ${stderr}`)); // Propagate error
          return;
       }
       console.log(stdout)
       let runTests  // the child process
-      const timer = lib.startJobTimer(job, runTests, done);
+      const timer = lib.startJobTimer(job, runTests);
 
       // Go ahead with MATLAB tests
       // Run tests in MATLAB
-      let logName = path.join(config.dataPath, 'reports', job.data['sha'], `matlab_tests-${job.data['sha']}.log`);
-      let args = ['-r', `runAllTests (""${job.data.sha}"",""${job.data.repo}"")`,
+      let shortID = lib.shortID(job.data['sha']);
+      let logName = path.join(config.dataPath, 'reports', job.data['sha'], `matlab_tests-${shortID}.log`);
+      let args = ['-r', `runAllTests (""${job.data.sha}"",""${job.data.repo}"", ""${config.dataPath}"")`,
                   '-wait', '-log', '-nosplash', '-logfile', logName];
       runTests = cp.execFile('matlab', args, (error, stdout, stderr) => {
          clearTimeout(timer);
-         if (error) { // Send error status
-            job.data['status'] = 'error';
+         if (error) {
             // Isolate error from log
             // For MATLAB return the line that begins with 'Error'
             let fn = (str) => { return str.startsWith('Error in \'') };
-            job.data['description'] = stderr.split(/\r?\n/).filter(fn).join(';');
-            done(error); // Propagate
+            job.done(new Error(stderr.split(/\r?\n/).filter(fn).join(';'))); // Propagate
          } else {
             lib.updateJobFromRecord(job);
-            done();
+            job.done();
          }
       });
       runTests.stdout.pipe(process.stdout);  // Pipe to display
@@ -218,30 +355,27 @@ function runTestsMATLAB(job, done) {
 /**
  * Called by queue process.  Here we checkout git and call MATLAB.
  * @param {Object} job - Job object which is being processed.
- * @param {Function} done - Callback on complete.
  */
-function runTestsPython(job, done) {
+function runTestsPython(job) {
    let runTests  // the child process
-   const timer = lib.startJobTimer(job, runTests, done);
-   let logName = path.join(config.dataPath, 'reports', job.data['sha'], `python_tests-${job.data['sha']}.log`);
+   const timer = lib.startJobTimer(job, runTests);
+   let logName = path.join(config.dataPath, 'reports', job.data['sha'], `python_tests-${lib.shortID(job.data.sha)}.log`);
 
    // Run tests in Python
    let testFunction = path.resolve(__dirname, 'runAllTests.py');
-   if(!fs.existsSync(testFunction)) { done(new Error (`"${testFunction}" not found`)); }
+   if(!fs.existsSync(testFunction)) { job.done(new Error (`"${testFunction}" not found`)); }
    let args = [testFunction, '-c', job.data.sha, '-r', process.env['REPO_PATH'], '--logdir', `${config.dataPath}`];
    runTests = cp.execFile('python', args, (error, stdout, stderr) => {
       clearTimeout(timer);
-      if (error) { // Send error status
-         job.data['status'] = 'error';
+      if (error) {
          // Isolate error from log
          // For Python, cat from the lost line that doesn't begin with whitespace
          let errArr = stderr.split(/\r?\n/);s
          let idx = errArr.reverse().findIndex(v => {return v.match('^\\S')});
-         job.data['description'] = stderr.split(/\r?\n/).slice(-idx-1).join(';');
-         done(error); // Propagate
+         job.done(new Error(stderr.split(/\r?\n/).slice(-idx-1).join(';'))); // Propagate
       } else {
          lib.updateJobFromRecord(job);
-         done();
+         job.done();
       }
    });
 
@@ -264,12 +398,14 @@ function runTestsPython(job, done) {
  * @returns {Function} - A Github request Promise.
  */
 function updateStatus(data, endpoint = null) {
+   const debug = log.extend('updateStatus');
    // Validate inputs
    if (!data.sha) { throw new ReferenceError('SHA undefined') }  // require sha
    let supportedStates = ['pending', 'error', 'success', 'failure'];
    if (supportedStates.indexOf(data.status) === -1) {
       throw new lib.APIError(`status must be one of "${supportedStates.join('", "')}"`)
    }
+   debug('Updating status to "%s" for %g', data['status'], data['sha']);
    return request("POST /repos/:owner/:repo/statuses/:sha", {
       owner: data['owner'] || process.env['REPO_OWNER'],
       repo: data['repo'],
@@ -297,6 +433,8 @@ function updateStatus(data, endpoint = null) {
  * @todo Add support for regex in branch ignore list
  */
 async function eventCallback (event) {
+  const debug = log.extend('event');
+  debug('eventCallback called');
   var ref;  // ref (i.e. branch name) and head commit
   const eventType = event.event;  // 'push' or 'pull_request'
   var job_template = {  // the data structure containing information about our check
@@ -314,7 +452,8 @@ async function eventCallback (event) {
   // this stage.  None app specific webhooks could be set up and would make it this far.  Could add
   // some logic here to deal with generic webhook requests (i.e. skip check status update).
   if (event.payload['installation']['id'] !== process.env['GITHUB_APP_IDENTIFIER']) {
-    throw AssertionError('Generic webhook events not supported')
+    debug('install id = ' + event.payload['installation']['id']);
+     //throw new lib.APIError('Generic webhook events not supported');  // FIXME
   }
 
   // Harvest data payload depending on event type
@@ -342,22 +481,38 @@ async function eventCallback (event) {
   // Log the event
   console.log('Received a %s event for %s to %s',
     eventType.replace('_', ' '), job_template['repo'], ref)
+  debug('job template: %O', job_template);
 
   // Determine what to do from settings
-  if (!(eventType in config.events)) { return; }  // No events set; return
+  if (!(eventType in config.events)) {
+     // No events set; return
+     debug('Event "%s" not set in config', eventType);
+     return;
+  }
   const todo = config.events[eventType] || {}  // List of events to process
 
   // Check if ref in ignore list
   let ref_ignore = lib.ensureArray(todo.ref_ignore || []);
-  if (ref_ignore.indexOf(ref.split('/').pop()) > -1) { return; }  // Do nothing if in ignore list
+  if (ref_ignore.indexOf(ref.split('/').pop()) > -1) {
+     // Do nothing if in ignore list
+     debug('Ref %s in config ignore list', ref_ignore);
+     return;
+  }
 
   // Check if action in actions list, if applicable
   let actions = lib.ensureArray(todo.actions || []);
-  if (event.payload.action && actions && actions.indexOf(event.payload.action) === -1) { return; }
+  if (event.payload.action && actions && actions.indexOf(event.payload.action) === -1) {
+     debug('Action "%s" not set in config', event.payload.action);
+     return;
+  }
 
   // Validate checks to run
   const checks = lib.ensureArray(todo.checks || []);
-  if (!todo.checks) { return; }  // No checks to perform
+  if (!todo.checks) {
+     // No checks to perform
+     debug('No checks set in config');
+     return;
+  }
 
   // For each check we update it's status and add a job to the queue
   let isString = x => { return (typeof x === 'string' || x instanceof String); }
@@ -406,15 +561,23 @@ async function eventCallback (event) {
  * Callback triggered when job finishes.  Called both on complete and error.
  * @param {Object} job - Job object which has finished being processed.
  */
-queue.on('finish', job => { // On job end post result to API
-  var endpoint
-  console.log(`Job ${job.id} complete`)
-  if (job.data.context.startsWith('coverage')) {
-    endpoint = `${process.env['WEBHOOK_PROXY_URL']}/${ENDPOINT}/coverage/${data.sha}`;
-  } else {
-    endpoint = `${process.env['WEBHOOK_PROXY_URL']}/${ENDPOINT}/${data.sha}`;
-  }
+queue.on('finish', (err, job) => { // On job end post result to API
+  var endpoint;
+  console.log(`Job #${lib.shortID(job.id)} finished` + (err ? 'with error' : ''));
   if (job.data.skipPost === true) { return; }
+
+  if (err) {
+     job.data['status'] = 'error';
+     job.data['description'] = err.message;
+     endpoint = '#';
+  } else {
+     if (!job.data.skipPost && job.data.context.startsWith('coverage')) {
+        endpoint = `${process.env['WEBHOOK_PROXY_URL']}/${ENDPOINT}/coverage/${job.data.sha}`;
+     } else {
+        endpoint = `${process.env['WEBHOOK_PROXY_URL']}/${ENDPOINT}/${job.data.sha}`;
+     }
+  }
+
   updateStatus(job.data, endpoint).then(  // Log outcome
       () => { console.log(`Updated status to "${job.data.status}" for ${job.data.context}`); },
       (err) => {
@@ -426,6 +589,6 @@ queue.on('finish', job => { // On job end post result to API
 
 
 module.exports = {
-   updateStatus, srv, handler, setAccessToken,
-   eventCallback, runTestsPython, runTestsMATLAB, processJob: shortCircuit
+   updateStatus, srv, handler, setAccessToken, prepareEnv, runTests,
+   eventCallback, runTestsPython, runTestsMATLAB
 }
