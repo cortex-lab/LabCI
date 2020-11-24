@@ -9,7 +9,7 @@ const Coverage = require('../coverage');
 const dummy_id = '1c33a6e2ac7d7fc098105b21a702e104e09767cf';
 
 
-describe('Test coverage parser:', function() {
+xdescribe('Test coverage parser:', function() {
     var testable;
       // Check NODE_ENV is correctly set, meaning our imported settings will be test ones
     before(function () {
@@ -32,7 +32,7 @@ describe('Test coverage parser:', function() {
 });
 
 
-describe('Test md5 file hash:', function() {
+xdescribe('Test md5 file hash:', function() {
     // Check NODE_ENV is correctly set, meaning our imported settings will be test ones
     before(function () {
         assert(process.env.NODE_ENV.startsWith('test'), 'Test run outside test env');

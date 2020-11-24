@@ -99,8 +99,6 @@ describe('Test startJobTimer:', function() {
         clock.tick(config.timeout + 1);
         expect(err).instanceOf(Error);
         expect(killed).true;
-        expect(job.data.status).eq('error');
-        expect(job.data.description).contains('stalled');
     });
 });
 
@@ -270,11 +268,6 @@ describe('Test short circuit', function() {
 
     it('expect force flag set', function (done) {
        // We expect that the job that's on the pile has 'force' set to false
-        const job = {
-           data: {
-              sha: ids[0]  // Record exists
-           }
-        };
         // Add job to the pile
         queue.add( { sha: ids[0] })  // Record exists
         function tests(run) {
@@ -282,7 +275,14 @@ describe('Test short circuit', function() {
            expect(queue.pile[0].data.force).false;
            done();
         }
-        lib.shortCircuit(() => { tests(true); }, job, () => { tests(false); });
+        const job = {
+           data: {
+              sha: ids[0]  // Record exists
+           },
+           done: () => tests(false)
+        };
+
+        lib.shortCircuit(job, () => { tests(true); });
     });
 
     it('expect short circuit', function (done) {
@@ -298,21 +298,47 @@ describe('Test short circuit', function() {
            expect(job.data.status).eq('failure');
            done();
         }
-        lib.shortCircuit(() => { tests(true); }, job, () => { tests(false); });
+        job.done = () => tests(false);
+        lib.shortCircuit(job, () => tests(true));
     });
 
     it('expect forced test function called', function (done) {
        // Record doesn't exist, so we expect the tests to be run anyway
-        const job = {
-           data: {
-              sha: ids[2],  // record exists
-              force: false  // load from record
-           }
-        };
         function tests(run) {
            expect(run).true;
            done();
         }
-        lib.shortCircuit(() => { tests(true); }, job, () => { tests(false); });
+        const job = {
+           data: {
+              sha: ids[2],  // record exists
+              force: false  // load from record
+           },
+           done: () => tests(false)
+        };
+        lib.shortCircuit(job, () => tests(true));
     });
 });
+
+
+/**
+ * A test shortID function.
+ */
+describe('Test shortID', function() {
+
+   it('expect short str from int', function () {
+      const out = lib.shortID(987654321);
+      expect(out).eq('9876543');
+   });
+
+   it('expect short str from str', function () {
+      const out = lib.shortID('98r7654321o', 3);
+      expect(out).eq('98r');
+   });
+
+   it('expect works with arrays', function () {
+      const out = lib.shortID([987654321, '7438ht43', null], 3);
+      expect(out).deep.equal(['987', '743', null]);
+   });
+
+});
+

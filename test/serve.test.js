@@ -284,7 +284,7 @@ describe('logs endpoint', () => {
    var logData;  // The text in our log
 
    before(function () {
-      const logFile = path.join(config.dataPath, 'reports', SHA, `${config.program}_tests-${SHA}.log`);
+      const logFile = path.join(config.dataPath, 'reports', SHA, `std_output-${SHA.substr(0,7)}.log`);
       logData = 'hello world';
       stub = sinon
          .stub(fs, 'readFile')
