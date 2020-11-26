@@ -159,7 +159,7 @@ srv.get('/:badge/:repo/:branch', async (req, res) => {
          res.end(JSON.stringify(report));})
       .catch(err => {  // Specified repo or branch not found
          console.error(`${data.owner}/${data.repo}/${data.branch} not found`)
-         res.send((err.status === 404) ? 404 : 500)
+         res.sendStatus((err.status === 404) ? 404 : 500)
       });
 });
 
@@ -228,6 +228,7 @@ function prepareEnv(job, callback) {
       default:
          const sha = job.data['sha'];
          const logName = path.join(config.dataPath, 'reports', sha, `std_output-${lib.shortID(sha)}.log`);
+         log('Calling %s with args %o', config.setup_function, [sha, repoPath, logName]);
          const prepEnv = cp.execFile(config.setup_function, [sha, repoPath, logName], (err, stdout, stderr) => {
             if (err) {
                console.error('Checkout failed: ', stderr);
