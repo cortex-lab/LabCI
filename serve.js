@@ -196,10 +196,10 @@ function runTests(job) {
             let idx = errArr.reverse().findIndex(v => {return v.match('^\\S')});
             message = stderr.split(/\r?\n/).slice(-idx-1).join(';');
          }
-         job.done(new Error(message));  // Propagate
+         job.done(Error(message));  // Propagate
       } else {
          if (!lib.updateJobFromRecord(job)) {
-            job.done(new Error('Failed to return test result'));
+            job.done(Error('Failed to return test result'));
          } else {
             job.done();
          }
@@ -232,7 +232,7 @@ function prepareEnv(job, callback) {
          const prepEnv = cp.execFile(config.setup_function, [sha, repoPath, logName], (err, stdout, stderr) => {
             if (err) {
                console.error('Checkout failed: ', stderr);
-               job.done(new Error(`Failed to prepare env: ${stderr}`)); // Propagate error
+               job.done(Error(`Failed to prepare env: ${stderr}`)); // Propagate error
                return;
             }
             callback(job);
@@ -255,7 +255,7 @@ function checkout(repoPath, ref) {
    if (!shell.which('git')) { throw new Error('Git not found on path'); }
    let verify = (cmd) => { if (!cmd) {
       shell.popd();
-      throw new Error('Failed to checkout: ' + cmd.stderr);
+      throw Error('Failed to checkout: ' + cmd.stderr);
    } };
    if (!shell.pushd(repoPath)) {
       shell.mkdir(path.resolve(repoPath + path.sep + '..'));
