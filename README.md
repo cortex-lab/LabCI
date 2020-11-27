@@ -12,7 +12,7 @@ Run the install script to install all dependencies, then create your .env file c
 
 ### Prerequisites
 
-Requires MATLAB 2017a or later, Node.js and Git Bash.  The following Node.js modules are required:
+Requires Git Bash, npm v6.14 or later and Node.js v12.19.0 or later.  For MATLAB tests use MATLAB 2017a or later.
 
 ```
 npm install ./matlab-ci
@@ -20,7 +20,34 @@ npm install ./matlab-ci
 
 ### Installing
 
-Make sure runAllTests.m is on your MATLAB paths
+Create a shell/batch script for preparing your environment, and one for running the tests (i.e. calling Python or MATLAB).
+Add these to the settings.json file in config:
+```
+{
+  "setup_function": "./prep_env.BAT",
+  "test_function": "./run_tests.BAT",
+  "listen_port": 3000,
+  "timeout": 480000,
+  "program": "python",
+  "strict_coverage": false,
+  "events": {
+    "push": {
+      "checks": null,
+      "ref_ignore": ["documentation", "gh-pages"]
+    },
+    "pull_request": {
+      "checks": ["continuous-integration", "coverage"],
+      "actions": ["opened", "synchronize", "reopened"],
+      "ref_ignore": ["documentation", "gh-pages"]
+    }
+  }
+}
+``` 
+Finally, ensure these scripts are executable by node:
+```
+chmod u+x ./run_tests.BAT
+chmod u+x ./prep_env.BAT
+```
 
 ## Running the tests
 

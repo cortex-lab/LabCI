@@ -321,21 +321,31 @@ describe('logs endpoint', () => {
 /**
  * This tests the coverage endpoint endpoint.  Directly accessing endpoint should return 403.
  */
-xdescribe('coverage endpoint', () => {
+describe('coverage endpoint', () => {
 
    before(function() {
-      let reportsDir = path.join(config.dataPath, 'reports');
-      fs.mkdir(reportsDir, (err) => {
+      let reportsDir = path.join(config.dataPath, 'reports', SHA);
+      fs.mkdir(reportsDir, { recursive: true }, (err) => {
          if (err) throw err;
          fs.writeFile(path.join(reportsDir, 'foobar.log'), '', (err) => { if (err) throw err; })
+         fs.writeFile(path.join(reportsDir, 'index.html'), '', (err) => { if (err) throw err; })
       });
    })
 
-   it('expect forbidden', (done) => {
+   it('expect root not found', (done) => {
       request(srv)
-         .get(`/${ENDPOINT}/coverage`)
-         .expect(403)
-         .end(function (err) {
+         .get(`/${ENDPOINT}/coverage/`)  // trailing slash essential
+         .expect(404)
+         .end(function (err, res) {
+            err? done(err) : done();
+         });
+   });
+
+   it('expect dir served found', (done) => {
+      request(srv)
+         .get(`/${ENDPOINT}/coverage/${SHA}/`)  // trailing slash essential
+         .expect(200)
+         .end(function (err, res) {
             err? done(err) : done();
          });
    });

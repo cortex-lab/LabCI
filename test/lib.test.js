@@ -321,7 +321,7 @@ describe('Test short circuit', function() {
 
 
 /**
- * A test shortID function.
+ * A test for shortID function.
  */
 describe('Test shortID', function() {
 
@@ -340,5 +340,20 @@ describe('Test shortID', function() {
       expect(out).deep.equal(['987', '743', null]);
    });
 
+});
+
+
+/**
+ * A test for isSHA function.
+ */
+describe('Test isSHA', function() {
+
+   it('expect true on SHA', function () {
+      expect(lib.isSHA(ids[0])).true;
+   });
+
+   it('expect false on fake', function () {
+      expect(lib.isSHA(ids[2])).false;
+   });
 });
 

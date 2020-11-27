@@ -1,12 +1,15 @@
 /**
  * A module containing helper and callback functions for continuous integration.
  */
-const localtunnel = require('localtunnel');
-const config = require('./config/config').settings
+const fs = require('fs');
+const path = require('path');
+
 const createDebug  = require('debug');
+const localtunnel = require('localtunnel');
+
+const config = require('./config/config').settings;
 const Coverage = require('./coverage');
-const queue = new (require('./queue.js'))()  // The queue object for our app to use
-const fs = require('fs')
+const queue = new (require('./queue.js'))();  // The queue object for our app to use
 
 /**
  * Return a shortened version of an int or string id
@@ -21,9 +24,36 @@ function shortID(v, len=7) {
    return v;  // If not string, array or number, leave unchanged
 }
 
+// Attach shortID function to logger formatter
 createDebug.formatters.g = shortID
 const log = createDebug('ci');
 const _log = log.extend('lib');
+
+
+/**
+ * Test commit has is valid.  Assumes hash is at least 7 characters long.
+ * @param {String} id - String under test.
+ * @returns {boolean} true if id is a valid SHA
+ */
+function isSHA(id) {
+   const regex = /^[0-9a-f]{7,40}$/i;
+   return (typeof id === 'string' || id instanceof String) && id.match(regex) !== null
+}
+
+
+/**
+ * Returns a full filepath.  Plays nicely with ~.
+ * @param {String} p - Path to resolve.
+ * @returns {String} A full path
+ */
+function fullpath(p) {
+   if (p[0] === '~') {
+      return path.join(process.env.HOME, p.slice(1));
+   } else {
+      return path.resolve(p);
+   }
+}
+
 
 /**
  * Util wraps input in array if not already one
@@ -391,5 +421,6 @@ class APIError extends Error {
 
 module.exports = {
    ensureArray, loadTestRecords, compareCoverage, computeCoverage, getBadgeData, log, shortID,
-   openTunnel, APIError, queue, partial, startJobTimer, updateJobFromRecord, shortCircuit
+   openTunnel, APIError, queue, partial, startJobTimer, updateJobFromRecord, shortCircuit, isSHA,
+   fullpath
 }

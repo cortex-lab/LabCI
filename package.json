@@ -1,6 +1,6 @@
 {
   "name": "matlab-ci",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "A small set of modules written in Node.js for running automated tests of MATLAB code in response to GitHub events.  Also submits code coverage to the Coveralls API.",
   "main": "main.js",
   "scripts": {
@@ -20,6 +20,7 @@
   "homepage": "https://github.com/cortex-lab/matlab-ci#readme",
   "dependencies": {
     "@octokit/app": "^4.2.1",
+    "@octokit/auth-app": "^2.10.2",
     "@octokit/request": "^5.4.9",
     "debug": "^4.3.1",
     "dotenv": "^8.2.0",
@@ -37,5 +38,8 @@
     "sinon": "^9.2.1",
     "supertest": "^6.0.1",
     "xml2js": "^0.4.23"
+  },
+  { "engines": {
+    "node" : ">=12.19.0" }
   }
 }

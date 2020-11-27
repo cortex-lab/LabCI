@@ -10,6 +10,7 @@ const express = require('express');
 const srv = express();
 const shell = require('shelljs');
 const { App } = require('@octokit/app');
+// const { createAppAuth } = require("@octokit/auth-app")
 const { request } = require('@octokit/request');
 
 const config = require('./config/config').settings;
@@ -83,6 +84,7 @@ function setAccessToken() {
  * @param {Object} req - Request object.
  * @param {Object} res - Response object.
  * @param {Function} next - Handle to next callback in stack.
+ * @todo split auth and handler middleware
  */
 srv.post('/github', async (req, res, next) => {
    console.log('Post received')
@@ -100,39 +102,37 @@ srv.post('/github', async (req, res, next) => {
 ///////////////////// STATUS DETAILS /////////////////////
 
 /**
+ * Serve the reports tree as a static resource; allows users to inspect the HTML coverage reports.
+ * We will add a link to the reports in the check details.
+ */
+srv.use(`/${ENDPOINT}/coverage`, express.static(path.join(config.dataPath, 'reports')))
+
+
+/**
  * Serve the test results for requested commit id.  This will be the result of a user clicking on
  * the 'details' link next to the continuous integration check.  The result should be an HTML
  * formatted copy of the stdout for the job's process.
  */
 srv.get(`/${ENDPOINT}/:id`, function (req, res) {
    let id = lib.shortID(req.params.id);
-  console.log('Request for test log for commit ' + id)
-  let program = config.program || 'matlab';
-  let log = path.join(config.dataPath, 'reports', req.params.id, `std_output-${id}.log`)
-  fs.readFile(log, 'utf8', (err, data) => {
-    if (err) {
-    	res.statusCode = 404;
-    	res.send(`Record for commit ${req.params.id} not found`);
-    } else {
-    	res.statusCode = 200;
-    	// Wrap in HTML tags so that the formatting is a little nicer.
-    	let preText = '<html lang="en-GB"><body><pre>';
-    	let postText = '</pre></body></html>';
-      res.send(preText + data + postText);
-    }
-  });
+   let isSHA = lib.isSHA(req.params.id);
+   console.log('Request for test log for ' + (isSHA? `commit ${id}` : `branch ${req.params.id}`));
+   let logFile = path.join(config.dataPath, 'reports', req.params.id, `std_output-${id}.log`)
+   fs.readFile(logFile, 'utf8', (err, data) => {
+      if (err) {
+         log('%s', err.message);
+    	   res.statusCode = 404;
+    	   res.send(`Record for ${isSHA? 'commit' : 'branch'} ${req.params.id} not found`);
+      } else {
+    	   res.statusCode = 200;
+    	   // Wrap in HTML tags so that the formatting is a little nicer.
+    	   let preText = '<html lang="en-GB"><body><pre>';
+    	   let postText = '</pre></body></html>';
+         res.send(preText + data + postText);
+      }
+   });
 });
 
-
-/**
- * Serve the reports tree as a static resource; allows users to inspect the HTML coverage reports.
- * The root of reports should be forbidden. We will add a link to the reports in the check details.
- */
-srv.use(`/${ENDPOINT}/coverage`, express.static(path.join(config.dataPath, 'reports')))
-srv.get(`/${ENDPOINT}/coverage`, function (req, res) {
-   res.statusCode = 403;
-   res.send('Forbidden');
-})
 
 
 ///////////////////// SHIELDS API EVENTS /////////////////////
@@ -229,10 +229,12 @@ function prepareEnv(job, callback) {
          const sha = job.data['sha'];
          const logName = path.join(config.dataPath, 'reports', sha, `std_output-${lib.shortID(sha)}.log`);
          log('Calling %s with args %o', config.setup_function, [sha, repoPath, logName]);
-         const prepEnv = cp.execFile(config.setup_function, [sha, repoPath, logName], (err, stdout, stderr) => {
+         let fcn = lib.fullpath(config.setup_function);
+         const prepEnv = cp.execFile(fcn, [sha, repoPath, logName], (err, stdout, stderr) => {
             if (err) {
-               console.error('Checkout failed: ', stderr);
-               job.done(Error(`Failed to prepare env: ${stderr}`)); // Propagate error
+               let errmsg = (err.code === 'ENOENT')? `File "${fcn}" not found` : err.code;
+               console.error('Checkout failed: ' + stderr || errmsg);
+               job.done(Error(`Failed to prepare env: ${stderr || errmsg}`)); // Propagate error
                return;
             }
             callback(job);
@@ -591,5 +593,5 @@ queue.on('finish', (err, job) => { // On job end post result to API
 
 module.exports = {
    updateStatus, srv, handler, setAccessToken, prepareEnv, runTests,
-   eventCallback, runTestsPython, runTestsMATLAB
+   eventCallback
 }
