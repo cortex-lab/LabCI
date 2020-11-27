@@ -179,8 +179,9 @@ function runTests(job) {
    fs.mkdir(path.join(config.dataPath, 'reports', sha), { recursive: true }, (err) => {
       if (err) throw err;
    });
-   debug('starting test child process %s', config.test_function);
-   runTests = cp.execFile(config.test_function, [sha, repoPath, config.dataPath], (error, stdout, stderr) => {
+   let fcn = lib.fullpath(config.test_function);
+   debug('starting test child process %s', fcn);
+   runTests = cp.execFile(fcn, [sha, repoPath, config.dataPath], (error, stdout, stderr) => {
       debug('clearing job timer');
       clearTimeout(timer);
       if (error) { // Send error status
@@ -191,11 +192,12 @@ function runTests(job) {
          let fn = (str) => { return str.startsWith('Error in \'') };
          message = stderr.split(/\r?\n/).filter(fn).join(';');
          // For Python, cat from the lost line that doesn't begin with whitespace
-         if (job.data['description'] === '') {
+         if (!message) {
             let errArr = stderr.split(/\r?\n/);
             let idx = errArr.reverse().findIndex(v => {return v.match('^\\S')});
             message = stderr.split(/\r?\n/).slice(-idx-1).join(';');
          }
+         if (!message) { message = error.code; }
          job.done(Error(message));  // Propagate
       } else {
          if (!lib.updateJobFromRecord(job)) {
