@@ -321,9 +321,8 @@ function getRepoPath(name) {
  * @param {String} targetURL - The target URL string pointing to the check's details.
  * @returns {Function} - A Github request Promise.
  */
-function updateStatus(data, targetURL = null) {
+function updateStatus(data, targetURL = '') {
    const debug = log.extend('updateStatus');
-   let defURL = `${process.env['WEBHOOK_PROXY_URL']}/${ENDPOINT}/${data.sha}`;
    // Validate inputs
    if (!data.sha) { throw new ReferenceError('SHA undefined') }  // require sha
    let supportedStates = ['pending', 'error', 'success', 'failure'];
@@ -340,7 +339,7 @@ function updateStatus(data, targetURL = null) {
       },
       sha: data['sha'],
       state: data['status'],
-      target_url: targetURL === null? defURL : targetURL,
+      target_url: targetURL,
       description: data['description'].substring(0, maxN),
       context: data['context']
     });
@@ -465,7 +464,7 @@ async function eventCallback (event) {
     // Update the status and start job
     // Post a 'pending' status while we do our tests
     // We wait for the job to be added before we continue so the force flag can be set
-    updateStatus(data, check === 'coverage'? '' : null).then( // Log outcome
+    updateStatus(data).then( // Log outcome
        () => {
           console.log(`Updated status to "pending" for ${data.context}`);
           // Add a new test job to the queue
@@ -487,17 +486,22 @@ async function eventCallback (event) {
  * @param {Object} job - Job object which has finished being processed.
  */
 queue.on('finish', (err, job) => { // On job end post result to API
-  var target = null;  // We will only update the endpoint for coverage jobs
+  var target = '';  // We will only update the endpoint for coverage jobs
   console.log(`Job #${lib.shortID(job.id)} finished` + (err ? ' with error' : ''));
   if (job.data.skipPost === true) { return; }
 
+  // Update target URL
+  if (!job.data.skipPost && job.data.context.startsWith('coverage')) {
+     // No URL for coverage if errored
+     target = err? '' : `${process.env['WEBHOOK_PROXY_URL']}/${ENDPOINT}/coverage/${job.data.sha}`;
+  } else {
+     target = `${process.env['WEBHOOK_PROXY_URL']}/${ENDPOINT}/${data.sha}`;
+  }
+
+  // Update status if error occurred
   if (err) {
      job.data['status'] = 'error';
      job.data['description'] = err.message;
-  } else {
-     if (!job.data.skipPost && job.data.context.startsWith('coverage')) {
-        target = `${process.env['WEBHOOK_PROXY_URL']}/${ENDPOINT}/coverage/${job.data.sha}`;
-     }
   }
 
   updateStatus(job.data, target).then(  // Log outcome
