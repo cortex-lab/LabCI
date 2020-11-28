@@ -9,7 +9,7 @@ const cp = require('child_process');
 const express = require('express');
 const srv = express();
 const shell = require('shelljs');
-const { App } = require('@octokit/app');
+const { App } = require('@octokit/app');  // FIXME deprecated
 // const { createAppAuth } = require("@octokit/auth-app")
 const { request } = require('@octokit/request');
 
@@ -36,7 +36,7 @@ const events = Object.keys(config.events);
 if (events.some(evt => { return !supportedEvents.includes(evt); })) {
   let errStr = 'One or more events in config not supported. ' +
                `The following events are supported: ${supportedEvents.join(', ')}`;
-  throw ReferenceError(errStr)
+  throw new ReferenceError(errStr)
 }
 
 // Create app instance for authenticating our GitHub app
@@ -198,10 +198,10 @@ function runTests(job) {
             message = stderr.split(/\r?\n/).slice(-idx-1).join(';');
          }
          if (!message) { message = error.code; }
-         job.done(Error(message));  // Propagate
+         job.done(new Error(message));  // Propagate
       } else {
          if (!lib.updateJobFromRecord(job)) {
-            job.done(Error('Failed to return test result'));
+            job.done(new Error('Failed to return test result'));
          } else {
             job.done();
          }
@@ -236,7 +236,7 @@ function prepareEnv(job, callback) {
             if (err) {
                let errmsg = (err.code === 'ENOENT')? `File "${fcn}" not found` : err.code;
                console.error('Checkout failed: ' + stderr || errmsg);
-               job.done(Error(`Failed to prepare env: ${stderr || errmsg}`)); // Propagate error
+               job.done(new Error(`Failed to prepare env: ${stderr || errmsg}`));  // Propagate error
                return;
             }
             callback(job);
@@ -259,7 +259,7 @@ function checkout(repoPath, ref) {
    if (!shell.which('git')) { throw new Error('Git not found on path'); }
    let verify = (cmd) => { if (!cmd) {
       shell.popd();
-      throw Error('Failed to checkout: ' + cmd.stderr);
+      throw new Error('Failed to checkout: ' + cmd.stderr);
    } };
    if (!shell.pushd(repoPath)) {
       shell.mkdir(path.resolve(repoPath + path.sep + '..'));
@@ -312,98 +312,18 @@ function getRepoPath(name) {
    }
 }
 
-/**
- * Called by queue process.  Here we checkout git and call MATLAB.
- * @param {Object} job - Job object which is being processed.
- */
-function runTestsMATLAB(job) {
-   // Go ahead and prepare to run tests
-   let sha = job.data['sha']; // Retrieve commit hash
-   // If the repo is a submodule, modify path
-   let repo_path = getRepoPath(data.repo);  // FIXME generalize
-   if (job.data['repo'] === 'alyx-matlab' || job.data['repo'] === 'signals') {
-      repo_path = repo_path + path.sep + job.data['repo'];}
-   // if (job.data['repo'] === 'alyx') { sha = 'dev' }  // For Alyx checkout master
-   // Checkout commit & prepare environment
-   return cp.execFile('checkout_ibllib_test.bat ', [sha, repo_path], (error, stdout, stderr) => {
-      if (error) { // Send error status
-         console.error('Checkout failed: ', stderr);
-         job.done(new Error(`Failed to prepare env: ${stderr}`)); // Propagate error
-         return;
-      }
-      console.log(stdout)
-      let runTests  // the child process
-      const timer = lib.startJobTimer(job, runTests);
-
-      // Go ahead with MATLAB tests
-      // Run tests in MATLAB
-      let shortID = lib.shortID(job.data['sha']);
-      let logName = path.join(config.dataPath, 'reports', job.data['sha'], `matlab_tests-${shortID}.log`);
-      let args = ['-r', `runAllTests (""${job.data.sha}"",""${job.data.repo}"", ""${config.dataPath}"")`,
-                  '-wait', '-log', '-nosplash', '-logfile', logName];
-      runTests = cp.execFile('matlab', args, (error, stdout, stderr) => {
-         clearTimeout(timer);
-         if (error) {
-            // Isolate error from log
-            // For MATLAB return the line that begins with 'Error'
-            let fn = (str) => { return str.startsWith('Error in \'') };
-            job.done(new Error(stderr.split(/\r?\n/).filter(fn).join(';'))); // Propagate
-         } else {
-            lib.updateJobFromRecord(job);
-            job.done();
-         }
-      });
-      runTests.stdout.pipe(process.stdout);  // Pipe to display
-   });
-}
-
-/**
- * Called by queue process.  Here we checkout git and call MATLAB.
- * @param {Object} job - Job object which is being processed.
- */
-function runTestsPython(job) {
-   let runTests  // the child process
-   const timer = lib.startJobTimer(job, runTests);
-   let logName = path.join(config.dataPath, 'reports', job.data['sha'], `python_tests-${lib.shortID(job.data.sha)}.log`);
-
-   // Run tests in Python
-   let testFunction = path.resolve(__dirname, 'runAllTests.py');
-   if(!fs.existsSync(testFunction)) { job.done(new Error (`"${testFunction}" not found`)); }
-   let args = [testFunction, '-c', job.data.sha, '-r', process.env['REPO_PATH'], '--logdir', `${config.dataPath}`];
-   runTests = cp.execFile('python', args, (error, stdout, stderr) => {
-      clearTimeout(timer);
-      if (error) {
-         // Isolate error from log
-         // For Python, cat from the lost line that doesn't begin with whitespace
-         let errArr = stderr.split(/\r?\n/);s
-         let idx = errArr.reverse().findIndex(v => {return v.match('^\\S')});
-         job.done(new Error(stderr.split(/\r?\n/).slice(-idx-1).join(';'))); // Propagate
-      } else {
-         lib.updateJobFromRecord(job);
-         job.done();
-      }
-   });
-
-   // Write output to file
-   runTests.stdout.pipe(process.stdout);  // Pipe to display
-   let logDump = fs.createWriteStream(logName);
-   runTests.stdout.pipe(logDump)
-   runTests.on('exit', () => { logDump.close(); });
-   // runTests.stdout.write = runTests.stderr.write = logDump.write.bind(access);
-   return runTests
-}
-
 
 ///////////////////// OTHER /////////////////////
 
 /**
  * Updates the status of a Github check, given an object of data from a Job.
  * @param {Object} data - A dictionary of data including the commit sha, status string and context.
- * @param {String} endpoint - The target URL string pointing to the check's details.
+ * @param {String} targetURL - The target URL string pointing to the check's details.
  * @returns {Function} - A Github request Promise.
  */
-function updateStatus(data, endpoint = null) {
+function updateStatus(data, targetURL = null) {
    const debug = log.extend('updateStatus');
+   let defURL = `${process.env['WEBHOOK_PROXY_URL']}/${ENDPOINT}/${data.sha}`;
    // Validate inputs
    if (!data.sha) { throw new ReferenceError('SHA undefined') }  // require sha
    let supportedStates = ['pending', 'error', 'success', 'failure'];
@@ -420,7 +340,7 @@ function updateStatus(data, endpoint = null) {
       },
       sha: data['sha'],
       state: data['status'],
-      target_url: endpoint || `${process.env['WEBHOOK_PROXY_URL']}/${ENDPOINT}/${data.sha}`,
+      target_url: targetURL === null? defURL : targetURL,
       description: data['description'].substring(0, maxN),
       context: data['context']
     });
@@ -458,7 +378,7 @@ async function eventCallback (event) {
   // some logic here to deal with generic webhook requests (i.e. skip check status update).
   if (event.payload['installation']['id'] !== process.env['GITHUB_APP_IDENTIFIER']) {
     debug('install id = ' + event.payload['installation']['id']);
-     //throw new lib.APIError('Generic webhook events not supported');  // FIXME
+     //throw new lib.APIError('Generic webhook events not supported');  // FIXME store install id
   }
 
   // Harvest data payload depending on event type
@@ -523,7 +443,7 @@ async function eventCallback (event) {
   let isString = x => { return (typeof x === 'string' || x instanceof String); }
   for (let check of checks) {
     // Invent a description for the initial status update
-    if (!isString(check)) { throw TypeError('Check must be a string') }
+    if (!isString(check)) { throw new TypeError('Check must be a string') }
     // Copy job data and update check specific fields
     let data = Object.assign({}, job_template);
     data.context = `${check}/${process.env['USERDOMAIN']}`
@@ -545,7 +465,7 @@ async function eventCallback (event) {
     // Update the status and start job
     // Post a 'pending' status while we do our tests
     // We wait for the job to be added before we continue so the force flag can be set
-    await updateStatus(data).then( // Log outcome
+    updateStatus(data, check === 'coverage'? '' : null).then( // Log outcome
        () => {
           console.log(`Updated status to "pending" for ${data.context}`);
           // Add a new test job to the queue
@@ -567,23 +487,20 @@ async function eventCallback (event) {
  * @param {Object} job - Job object which has finished being processed.
  */
 queue.on('finish', (err, job) => { // On job end post result to API
-  var endpoint;
-  console.log(`Job #${lib.shortID(job.id)} finished` + (err ? 'with error' : ''));
+  var target = null;  // We will only update the endpoint for coverage jobs
+  console.log(`Job #${lib.shortID(job.id)} finished` + (err ? ' with error' : ''));
   if (job.data.skipPost === true) { return; }
 
   if (err) {
      job.data['status'] = 'error';
      job.data['description'] = err.message;
-     endpoint = '#';
   } else {
      if (!job.data.skipPost && job.data.context.startsWith('coverage')) {
-        endpoint = `${process.env['WEBHOOK_PROXY_URL']}/${ENDPOINT}/coverage/${job.data.sha}`;
-     } else {
-        endpoint = `${process.env['WEBHOOK_PROXY_URL']}/${ENDPOINT}/${job.data.sha}`;
+        target = `${process.env['WEBHOOK_PROXY_URL']}/${ENDPOINT}/coverage/${job.data.sha}`;
      }
   }
 
-  updateStatus(job.data, endpoint).then(  // Log outcome
+  updateStatus(job.data, target).then(  // Log outcome
       () => { console.log(`Updated status to "${job.data.status}" for ${job.data.context}`); },
       (err) => {
           console.log(`Failed to update status to "${job.data.status}" for ${job.data.context}`);
@@ -594,6 +511,5 @@ queue.on('finish', (err, job) => { // On job end post result to API
 
 
 module.exports = {
-   updateStatus, srv, handler, setAccessToken, prepareEnv, runTests,
-   eventCallback
+   updateStatus, srv, handler, setAccessToken, prepareEnv, runTests, eventCallback
 }

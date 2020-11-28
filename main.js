@@ -34,11 +34,11 @@ queue.process((job) => { shortCircuit(job, run); })
 
 
 /**
- * Callback triggered when job completes.  Called when all tests run to end.
+ * Callback triggered when job completes.  Called when uncaught error is thrown in setup or test
+ * functions.  Do nothing as we'll process the error with the 'finish' callback.
  * @param {Object} job - Job object which has finished being processed.
- * @todo change coverage url from null to log location
  */
-// queue.on('complete', job => {});
+queue.on('error', _ => {});
 
 
 // Log handler errors

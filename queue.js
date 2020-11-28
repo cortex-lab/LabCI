@@ -76,8 +76,8 @@ class Queue extends EventEmitter {
     return function( err ) {
       job.isRunning = false; // set false (will emit 'end')
       if( err ) { obj.emit('error', err, job); }
-      else {obj.emit('complete', job)}
-      obj.emit('finish', null, job);
+      else { obj.emit('complete', job) }
+      obj.emit('finish', err, job);
       }
 
   }
