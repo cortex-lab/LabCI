@@ -445,7 +445,7 @@ async function eventCallback (event) {
     if (!isString(check)) { throw new TypeError('Check must be a string') }
     // Copy job data and update check specific fields
     let data = Object.assign({}, job_template);
-    data.context = `${check}/${process.env['USERDOMAIN']}`
+    data.context = `${check}/${process.env['USERDOMAIN'] || process.env['NAME']}`
     switch (check) {
       case 'coverage':
         data.description = 'Checking coverage';
@@ -495,7 +495,7 @@ queue.on('finish', (err, job) => { // On job end post result to API
      // No URL for coverage if errored
      target = err? '' : `${process.env['WEBHOOK_PROXY_URL']}/${ENDPOINT}/coverage/${job.data.sha}`;
   } else {
-     target = `${process.env['WEBHOOK_PROXY_URL']}/${ENDPOINT}/${data.sha}`;
+     target = `${process.env['WEBHOOK_PROXY_URL']}/${ENDPOINT}/${job.data.sha}`;
   }
 
   // Update status if error occurred
