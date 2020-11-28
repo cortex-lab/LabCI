@@ -1,14 +1,6 @@
 /**
  * @author Miles Wells <miles.wells@ucl.ac.uk>
- * @requires ./queue.js
- * @requires ./coverage.js
- * @requires module:dotenv
- * @requires module:"@octokit/app"
- * @requires module:"@octokit/request"
- * @requires module:express
- * @requires module:localtunnel
- * @requires module:github-webhook-handler
- * @requires module:shelljs
+ * @requires ./queue.js, ./coverage.js, ./serve.js, ./lib.js
  * @todo save auxiliary configuration into a separate config file
  * @todo add abort option for when new commits added
  * @todo rename context to description and use context to track posts
@@ -20,18 +12,17 @@ const config = require("./config/config").settings;
 
 
 /**
- * Build queue processing pipeline.
- * @todo make into Promise chain
+ * Build queue processing pipeline.  The shortCircuit call checks whether the results may be loaded from file,
+ * bypassing the test function.
  */
-// const applyAsync = (acc, val) => acc.then(val);
-// const composeAsync = (...funcs) => x => funcs.reduce(applyAsync, Promise.resolve(x));
-// const run = composeAsync(shortCircuit, prepareEnv, runTests);
-const run = (job) => {
-   let run = () => prepareEnv(job, runTests);
-   return shortCircuit(job, run);
-};
-queue.process((job) => { shortCircuit(job, run); })
+const run = (job) => { prepareEnv(job, runTests); };
+queue.process((job) => { shortCircuit(job, run); });
 
+// NB: Only the supported events make it this far (i.e. push and pull requests)
+handler.on('*', evt => eventCallback(evt));
+
+
+///////////////////// ERROR HANDLING /////////////////////
 
 /**
  * Callback triggered when job completes.  Called when uncaught error is thrown in setup or test
@@ -46,13 +37,15 @@ handler.on('error', function (err) {
   console.error('Error:', err.message);
 })
 
+// Log any unhandled errors
+process.on('unhandledRejection', (reason, p) => {
+  console.log('Unhandled Rejection at: Promise', p, 'reason:', reason);
+  console.log(reason.stack)
+});
 
-///////////////////// GITHUB EVENTS /////////////////////
 
-// NB: Only the supported events make it this far
-handler.on('*', evt => eventCallback(evt));
+///////////////////// START TUNNEL /////////////////////
 
-// Start tunnel // TODO Add dry run flag for testing
 openTunnel().then(
    () => {
       // Start the server on same port as tunnel
@@ -68,8 +61,3 @@ openTunnel().then(
    }
 )
 
-// Log any unhandled errors
-process.on('unhandledRejection', (reason, p) => {
-  console.log('Unhandled Rejection at: Promise', p, 'reason:', reason);
-  console.log(reason.stack)
-});

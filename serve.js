@@ -9,8 +9,7 @@ const cp = require('child_process');
 const express = require('express');
 const srv = express();
 const shell = require('shelljs');
-const { App } = require('@octokit/app');  // FIXME deprecated
-// const { createAppAuth } = require("@octokit/auth-app")
+const { createAppAuth } = require("@octokit/auth-app")
 const { request } = require('@octokit/request');
 
 const config = require('./config/config').settings;
@@ -18,10 +17,9 @@ const queue = require('./lib').queue;  // shared Queue from lib
 const log = require('./lib').log;
 const lib = require('./lib');
 
-
 // The installation token is a temporary token required for making changes to the Github Checks.
-// The token will be set each time a new Github request is received.
-var installationAccessToken;
+// The token may be set each time a new Github request is received, and before an API request.
+var token = {'tokenType': null};
 // A hash of the secret is send in the X-Hub-Signature; the handler checks the hash to validate
 // that the request comes from GitHub.
 const secret = process.env['GITHUB_WEBHOOK_SECRET'];
@@ -40,8 +38,8 @@ if (events.some(evt => { return !supportedEvents.includes(evt); })) {
 }
 
 // Create app instance for authenticating our GitHub app
-const app = new App({
-    id: process.env['GITHUB_APP_IDENTIFIER'],
+const auth = createAppAuth({
+    appId: process.env['GITHUB_APP_IDENTIFIER'],
     privateKey: fs.readFileSync(process.env['GITHUB_PRIVATE_KEY']),
     webhooks: { secret }
 });
@@ -55,24 +53,33 @@ const handler = createHandler({ path: '/github', secret: secret, events: support
  * our app's endpoint.
  * @returns {Promise} - A promise resolved when the installationAccessToken var has been set.
  */
-function setAccessToken() {
-   // Authenticate app by exchanging signed JWT for access token
-   const token = app.getSignedJsonWebToken();
-   // GET /orgs/:org/installation
-   return request("GET /repos/:owner/:repo/installation", {
-      owner: process.env['REPO_OWNER'],
-      repo: process.env['REPO_NAME'],
-      headers: {
-         authorization: `bearer ${token}`,
-         accept: "application/vnd.github.machine-man-preview+json"
-      }
-   }).then( res => {
-      // contains the installation id necessary to authenticate as an installation
-      let installationId = res.data.id;
-      app.getInstallationAccessToken({ installationId }).then( token => {
-         installationAccessToken = token
-      });
-   });
+async function setAccessToken() {
+    let debug = log.extend('auth');
+    // Return if token still valid
+    if (new Date(token.expiresAt) > new Date()) { return; }
+    if (token.tokenType !== 'installation') {
+        debug('Fetching install ID');
+        // Retrieve JSON Web Token (JWT) to authenticate as app
+        token = await auth({type: "app"});
+        // Get installation ID
+        const {data: {id}} = await request("GET /repos/:owner/:repo/installation", {
+            owner: process.env['REPO_OWNER'],
+            repo: process.env['REPO_NAME'],
+            headers: {
+                authorization: `bearer ${token.token}`,
+                accept: "application/vnd.github.machine-man-preview+json"
+            }
+        });
+        token.installationId = id;
+    }
+    debug('Fetching install token');
+    // Retrieve installation token
+    const options = {
+        type: 'installation',
+        installationId: token.installationId
+    };
+    token = await auth(options);
+    debug('Authentication complete');
 }
 
 
@@ -89,13 +96,9 @@ function setAccessToken() {
 srv.post('/github', async (req, res, next) => {
    console.log('Post received')
    let id = req.header('x-github-hook-installation-target-id');
-   if (id != process.env.GITHUB_APP_IDENTIFIER) { next() }  // Not for us; move on
-   setAccessToken().then(
-      handler(req, res, () => res.end('ok'))
-   ).then(
-      () => {},
-      (err) => { next(err) }
-   );
+   if (id != process.env.GITHUB_APP_IDENTIFIER) { next(); return; }  // Not for us; move on
+   await setAccessToken();
+   handler(req, res, () => res.end('ok'));
 });
 
 
@@ -213,7 +216,6 @@ function runTests(job) {
    let logDump = fs.createWriteStream(logName, { flags: 'a' });
    runTests.stdout.pipe(logDump);
    runTests.on('exit', () => { logDump.close(); });
-   // runTests.stdout.write = runTests.stderr.write = logDump.write.bind(access);
    return runTests;
 }
 
@@ -321,20 +323,21 @@ function getRepoPath(name) {
  * @param {String} targetURL - The target URL string pointing to the check's details.
  * @returns {Function} - A Github request Promise.
  */
-function updateStatus(data, targetURL = '') {
+async function updateStatus(data, targetURL = '') {
    const debug = log.extend('updateStatus');
+   await setAccessToken();
    // Validate inputs
    if (!data.sha) { throw new ReferenceError('SHA undefined') }  // require sha
    let supportedStates = ['pending', 'error', 'success', 'failure'];
    if (supportedStates.indexOf(data.status) === -1) {
       throw new lib.APIError(`status must be one of "${supportedStates.join('", "')}"`)
    }
-   debug('Updating status to "%s" for %g', data['status'], data['sha']);
+   debug('Updating status to "%s" for %s @ %g', data['status'], data['context'].split('/')[0], data['sha']);
    return request("POST /repos/:owner/:repo/statuses/:sha", {
       owner: data['owner'] || process.env['REPO_OWNER'],
       repo: data['repo'],
       headers: {
-         authorization: `token ${installationAccessToken}`,
+         authorization: `token ${token['token']}`,
          accept: "application/vnd.github.machine-man-preview+json"
       },
       sha: data['sha'],
@@ -375,9 +378,8 @@ async function eventCallback (event) {
   // Double-check the event was intended for our app.  This is also done using the headers before
   // this stage.  None app specific webhooks could be set up and would make it this far.  Could add
   // some logic here to deal with generic webhook requests (i.e. skip check status update).
-  if (event.payload['installation']['id'] !== process.env['GITHUB_APP_IDENTIFIER']) {
-    debug('install id = ' + event.payload['installation']['id']);
-     //throw new lib.APIError('Generic webhook events not supported');  // FIXME store install id
+  if (event.payload['installation']['id'] !== token['installationId']) {
+    throw new lib.APIError('Generic webhook events not supported (installation ID invalid)');
   }
 
   // Harvest data payload depending on event type
@@ -405,7 +407,6 @@ async function eventCallback (event) {
   // Log the event
   console.log('Received a %s event for %s to %s',
     eventType.replace('_', ' '), job_template['repo'], ref)
-  debug('job template: %O', job_template);
 
   // Determine what to do from settings
   if (!(eventType in config.events)) {
@@ -441,40 +442,40 @@ async function eventCallback (event) {
   // For each check we update it's status and add a job to the queue
   let isString = x => { return (typeof x === 'string' || x instanceof String); }
   for (let check of checks) {
-    // Invent a description for the initial status update
-    if (!isString(check)) { throw new TypeError('Check must be a string') }
-    // Copy job data and update check specific fields
-    let data = Object.assign({}, job_template);
-    data.context = `${check}/${process.env['USERDOMAIN'] || process.env['NAME']}`
-    switch (check) {
-      case 'coverage':
-        data.description = 'Checking coverage';
-        break;
-      case 'continuous-integration':
-        data.description = 'Tests running';
-        break;
-      default:  // generic description
-        data.description = 'Check in progress';
-    }
+     // Invent a description for the initial status update
+     if (!isString(check)) { throw new TypeError('Check must be a string') }
+     // Copy job data and update check specific fields
+     let data = Object.assign({}, job_template);
+     data.context = `${check}/${process.env['USERDOMAIN'] || process.env['NAME']}`
+     switch (check) {
+        case 'coverage':
+           data.description = 'Checking coverage';
+           break;
+        case 'continuous-integration':
+           data.description = 'Tests running';
+           break;
+        default:  // generic description
+           data.description = 'Check in progress';
+     }
 
-    // If we have two checks to perform and one already on the pile, set force to false
-    let qLen = queue.pile.length;
-    data.force = !(checks.length > 1 && qLen > 0 && queue.pile[qLen-1].data.sha === data.sha);
+     // If we have two checks to perform and one already on the pile, set force to false
+     let qLen = queue.pile.length;
+     data.force = !(checks.length > 1 && qLen > 0 && queue.pile[qLen-1].data.sha === data.sha);
 
-    // Update the status and start job
-    // Post a 'pending' status while we do our tests
-    // We wait for the job to be added before we continue so the force flag can be set
-    updateStatus(data).then( // Log outcome
-       () => {
-          console.log(`Updated status to "pending" for ${data.context}`);
-          // Add a new test job to the queue
-          queue.add(data);
-       },
-       (err) => {
-          console.log(`Failed to update status to "pending" for ${data.context}`);
-          console.log(err);
-       }
-    );
+     /**
+     * Update the status and start job.
+     * Posts a 'pending' status while we do our tests
+     * We wait for the job to be added before we continue so the force flag can be set.
+     * NB: If the tests and env prep are too quick our outcome may be updated before the pending
+     * status.
+     */
+     updateStatus(data)
+        .then(() => console.log(`Updated status to "pending" for ${data.context}`))
+        .catch(err => {
+           console.log(`Failed to update status to "pending" for ${data.context}`);
+           console.log(err);
+        });
+     queue.add(data);
   }
 }
 
@@ -504,15 +505,13 @@ queue.on('finish', (err, job) => { // On job end post result to API
      job.data['description'] = err.message;
   }
 
-  updateStatus(job.data, target).then(  // Log outcome
-      () => { console.log(`Updated status to "${job.data.status}" for ${job.data.context}`); },
-      (err) => {
-          console.log(`Failed to update status to "${job.data.status}" for ${job.data.context}`);
-          console.log(err);
-      }
-  );
+  updateStatus(job.data, target)
+     .then(() => console.log(`Updated status to "${job.data.status}" for ${job.data.context}`))
+     .catch(err => {
+        console.log(`Failed to update status to "${job.data.status}" for ${job.data.context}`);
+        console.log(err);
+     });
 });
-
 
 module.exports = {
    updateStatus, srv, handler, setAccessToken, prepareEnv, runTests, eventCallback

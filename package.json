@@ -1,10 +1,10 @@
 {
   "name": "matlab-ci",
   "version": "2.0.0",
-  "description": "A small set of modules written in Node.js for running automated tests of MATLAB code in response to GitHub events.  Also submits code coverage to the Coveralls API.",
+  "description": "A small set of modules written in Node.js for running automated tests of MATLAB and Python code in response to GitHub events.  Also submits code coverage to the Coveralls API.",
   "main": "main.js",
   "scripts": {
-    "test": "env NODE_ENV=test mocha ./test --recursive --reporter spec",
+    "test": "NODE_ENV=test DOTENV_CONFIG_PATH=.\\\\test\\\\fixtures\\\\.env.test mocha -r dotenv/config ./test --recursive --reporter spec",
     "start": "node -r dotenv/config main.js"
   },
   "repository": {
@@ -12,21 +12,21 @@
     "url": "git+https://github.com/cortex-lab/matlab-ci.git"
   },
   "keywords": [],
-  "author": "",
+  "author": "Miles Wells",
   "license": "ISC",
   "bugs": {
     "url": "https://github.com/cortex-lab/matlab-ci/issues"
   },
   "homepage": "https://github.com/cortex-lab/matlab-ci#readme",
   "dependencies": {
-    "@octokit/app": "^4.2.1",
     "@octokit/auth-app": "^2.10.2",
     "@octokit/request": "^5.4.9",
     "debug": "^4.3.1",
     "dotenv": "^8.2.0",
     "express": "^4.17.1",
     "github-webhook-handler": "^1.0.0",
-    "localtunnel": "^2.0.0"
+    "localtunnel": "^2.0.0",
+    "shelljs": "^0.8.4"
   },
   "devDependencies": {
     "chai": "^4.2.0",
@@ -34,7 +34,6 @@
     "fake-timers": "^0.1.2",
     "mocha": "^8.2.0",
     "nock": "^13.0.4",
-    "shelljs": "^0.8.4",
     "sinon": "^9.2.1",
     "supertest": "^6.0.1",
     "xml2js": "^0.4.23"
