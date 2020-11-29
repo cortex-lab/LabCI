@@ -188,7 +188,7 @@ function shortCircuit(job, func=null) {
    // job.id contains id of this job.
    let log = _log.extend('shortCircuit');
    log('Checking whether to load from saved for %s @ %g',
-      job.data.context.split('/')[0], job.data.sha);
+      (job.data.context || '').split('/').pop(), job.data.sha);
 
    // To avoid running our tests twice, set the force flag to false for any other jobs in pile that
    // have the same commit ID

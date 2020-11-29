@@ -9,7 +9,7 @@ const cp = require('child_process');
 const express = require('express');
 const srv = express();
 const shell = require('shelljs');
-const { createAppAuth } = require("@octokit/auth-app")
+const app = require("@octokit/auth-app");
 const { request } = require('@octokit/request');
 
 const config = require('./config/config').settings;
@@ -37,13 +37,6 @@ if (events.some(evt => { return !supportedEvents.includes(evt); })) {
   throw new ReferenceError(errStr)
 }
 
-// Create app instance for authenticating our GitHub app
-const auth = createAppAuth({
-    appId: process.env['GITHUB_APP_IDENTIFIER'],
-    privateKey: fs.readFileSync(process.env['GITHUB_PRIVATE_KEY']),
-    webhooks: { secret }
-});
-
 // Create handler to verify posts signed with webhook secret.  Content type must be application/json
 const createHandler = require('github-webhook-handler');
 const handler = createHandler({ path: '/github', secret: secret, events: supportedEvents});
@@ -57,6 +50,13 @@ async function setAccessToken() {
     let debug = log.extend('auth');
     // Return if token still valid
     if (new Date(token.expiresAt) > new Date()) { return; }
+    // Create app instance for authenticating our GitHub app
+    const auth = app.createAppAuth({
+       appId: process.env['GITHUB_APP_IDENTIFIER'],
+       privateKey: fs.readFileSync(process.env['GITHUB_PRIVATE_KEY']),
+       webhooks: { secret }
+    });
+
     if (token.tokenType !== 'installation') {
         debug('Fetching install ID');
         // Retrieve JSON Web Token (JWT) to authenticate as app
@@ -237,7 +237,7 @@ function prepareEnv(job, callback) {
          const prepEnv = cp.execFile(fcn, [sha, repoPath, logName], (err, stdout, stderr) => {
             if (err) {
                let errmsg = (err.code === 'ENOENT')? `File "${fcn}" not found` : err.code;
-               console.error('Checkout failed: ' + stderr || errmsg);
+               console.error('Checkout failed: ' + (stderr || errmsg));
                job.done(new Error(`Failed to prepare env: ${stderr || errmsg}`));  // Propagate error
                return;
             }
@@ -325,14 +325,15 @@ function getRepoPath(name) {
  */
 async function updateStatus(data, targetURL = '') {
    const debug = log.extend('updateStatus');
-   await setAccessToken();
    // Validate inputs
-   if (!data.sha) { throw new ReferenceError('SHA undefined') }  // require sha
+   if (!lib.isSHA(data.sha)) { throw new ReferenceError('undefined or invalid sha'); }  // require sha
    let supportedStates = ['pending', 'error', 'success', 'failure'];
    if (supportedStates.indexOf(data.status) === -1) {
       throw new lib.APIError(`status must be one of "${supportedStates.join('", "')}"`)
    }
-   debug('Updating status to "%s" for %s @ %g', data['status'], data['context'].split('/')[0], data['sha']);
+   debug('Updating status to "%s" for %s @ %g',
+      data['status'], (data['context'] || '').split('/').pop(), data['sha']);
+   await setAccessToken();
    return request("POST /repos/:owner/:repo/statuses/:sha", {
       owner: data['owner'] || process.env['REPO_OWNER'],
       repo: data['repo'],

@@ -34,7 +34,7 @@ defaults = {
 testing = {
     listen_port: 3000,
     timeout: 60000,
-    setup_function: null,
+    setup_function: 'prep_env.BAT',
     test_function: "run_tests.BAT",
     events: {
         push: {

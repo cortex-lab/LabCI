@@ -1,45 +1,44 @@
 const fs = require('fs');
+const cp = require('child_process');
+const events = require('events');
 const path = require('path');
 const nock = require('nock');  // for mocking outbound requests
 const request = require('supertest')  // for mocking inbound requests
 const sinon = require('sinon');  // for mocking local modules
 const expect = require('chai').expect
 const assert = require('chai').assert
+const appAuth = require("@octokit/auth-app");
 
 const APIError = require('../lib').APIError
-const { updateStatus, setAccessToken, eventCallback, srv } = require('../serve');
+const { updateStatus, setAccessToken, eventCallback, srv, prepareEnv, runTests } = require('../serve');
 const queue = require('../lib').queue
 const config = require('../config/config').settings
 
 // Create a constant JWT
-const token = 'eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJpYXQiOjAsImV4cCI6NTcwLCJpc3MiOiIxMjMifQ' +
-              '.neOGz56XYH8Old443UkRFm_qrejJIRO2O6ruqWxPxaxLjXQhUajRdXRTxupB5n63hDtGssnXge6_64' +
-              'GTCg_jx3RXfYSjbDz-43q2Bg7oczmQJzV8rq1TXrcmHJUULoZZS5-ChqGsWNnx5PsYJvHs84liZ8yWF' +
-              'oe4V_2Noq8kVbRY2kP1eQV1ivZmm9nuiXMbqcoPpU-JdmHsOd78GdjcgqQNaWNwz9CAHGyU5vFoHVNf' +
-              'oaRoL3QzjsZfdme5FWauujaAbeRVbWsmmWinynWlj2nYKTv3oW6L1w_TyRdwR5u_w4HoaCTvF7YcQD_' +
-              'B1pFYE7nzLp6ZZ-yeotjMEB_8gw';
+const token = 'eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJpYXQiOi0zMCwiZXhwIjo1NzAsImlzcyI6MTIzfQ' +
+              '.Amivfieh9COk-89jINMvQh-LZtjLVT44aeulGNNZnFtHhFpNAg9gZGuf-LCjykHqQvibYPfPxD7L_d' +
+              'J1t49LwhErHPRpRrs-vs3HoEVQpZMmdA1oLmCJkCC0PVP0c7nalx5wvLWHIx5hQCZ3aJfAwrH2xIaWJ' +
+              'YhBKVIsR0J25O0_ouCD3JsoBu87xaTRH1yyv7COBFauBsFytkV4L0fFIVAarqPmQCWMRkEmQJn9lZZC' +
+              'VLM8o9EEQibLmmeF2CF_rLeolHfLjZkYBMd9MGLPTnEbNbQiRpqqeVft0Hg2SJuKcpsKEilTVs20JdN' +
+              'lY9eIUUDECsU6Mxoa-s_5ffWSHg';
 const APP_ID = process.env.GITHUB_APP_IDENTIFIER;
 const ENDPOINT = 'logs';  // The URL endpoint for fetching status check details
 const SHA = 'cabe27e5c8b8cb7cdc4e152f1cf013a89adc7a71'
 
 
 /**
- * This tests 'setAccessToken', 'updateStatus' which handle the app authentication and updating
- * checks (the only time permissions are required).
+ * This tests 'setAccessToken' which handles the app authentication.
  */
-describe("Github handlers", () => {
+describe('setAccessToken', () => {
    var scope;  // Our server mock
    var clock;  // Our clock mock for replicable JWT
 
-   before(function() {
+   beforeEach(function() {
       // https://runkit.com/gr2m/reproducable-jwt
       clock = sinon.useFakeTimers({
          now: 0,
          toFake: ['Date']
       });
-   })
-
-   beforeEach(function() {
       // Mock for App.installationAccessToken
       scope = nock('https://api.github.com', {
          reqheaders: {
@@ -54,7 +53,14 @@ describe("Github handlers", () => {
            .reply(201, {id: APP_ID});
       scope.post(`/app/installations/${APP_ID}/access_tokens`)
            .matchHeader('authorization', `bearer ${token}`)
-           .reply(201, {token: '#t0k3N'});
+           .reply(201, {
+              token: '#t0k3N',
+              permissions: {
+                 checks: "write",
+                 metadata: "read",
+                 contents: "read"
+              },
+           });
 
       setAccessToken().then(function () {
          scope.isDone();
@@ -62,69 +68,143 @@ describe("Github handlers", () => {
       });
    });
 
-   it('updateStatus should post to given endpoint', (done) => {
-     const data = {
-        sha: SHA,
-        owner: 'okonkwe',
-        repo: 'borneo-function',
-        status: 'success',
-        description: ''
-     };
-     scope.post(`/repos/${data['owner']}/${data['repo']}/statuses/${data['sha']}`).reply(201);
-     updateStatus(data).then(() => {
-        scope.isDone();
-        done();
-     });
+   it('test install ID cached', (done) => {
+      // In this test we check that once the install ID is retrieved the app authentification is
+      // skipped (only to re-auth as installation).
+      scope.get(`/repos/${process.env.REPO_OWNER}/${process.env.REPO_NAME}/installation`)
+           .matchHeader('authorization', `bearer ${token}`)
+           .reply(201, {id: APP_ID})
+      scope.post(`/app/installations/${APP_ID}/access_tokens`)
+           .twice()  // Should be called twice in a row
+           .matchHeader('authorization', `bearer ${token}`)
+           .reply(201, {
+              token: '#t0k3N',
+              expires_at: new Date('3000-12-30').toISOString(),
+              permissions: {
+                 checks: "write",
+                 metadata: "read",
+                 contents: "read"
+              },
+           });
 
+      setAccessToken().then(async function () {
+         await setAccessToken();
+         scope.isDone();
+         done();
+      });
    });
 
-   it('updateStatus should contain the correct data', (done) => {
-     scope.get(`/repos/${process.env.REPO_OWNER}/${process.env.REPO_NAME}/installation`)
-          .matchHeader('authorization', `bearer ${token}`)
-          .reply(201, {id: APP_ID})
-          .post(`/app/installations/${APP_ID}/access_tokens`)
-          .matchHeader('authorization', `bearer ${token}`)
-          .reply(201, {token: '#t0k3N'});
+   it('test token cached', (done) => {
+      // In this test we restore the clocks and ignore the JWT token, instead we test that a new
+      // token is not requested so long as the token hasn't expired
+      clock.restore();
+      scope.get(`/repos/${process.env.REPO_OWNER}/${process.env.REPO_NAME}/installation`)
+           .reply(201, {id: APP_ID})
+      scope.post(`/app/installations/${APP_ID}/access_tokens`)
+           .reply(201, {
+              token: '#t0k3N',
+              expires_at: new Date('3000-12-30').toISOString(),
+              permissions: {
+                 checks: "write",
+                 metadata: "read",
+                 contents: "read"
+              },
+           });
 
-     const data = {
-        sha: '9f4f7948',
-        base: 'dcb375f0',
-        owner: 'okonkwe',
-        repo: 'borneo-function',
-        status: 'pending',
-        description: 'Lorem ipsum '.repeat(13),  // Check max char
-        context: 'ci/test'
-     };
-     const uri = `/repos/${data['owner']}/${data['repo']}/statuses/${data['sha']}`;
-     const requestBodyMatcher = (body) => {
-        return body.state === data.status &&
-               body.target_url === `${process.env.WEBHOOK_PROXY_URL}/${ENDPOINT}/${data.sha}` &&
-               body.description.length <= 140 &&
-               body.context === data.context;
-     };
-     scope.post(uri, requestBodyMatcher)
-          .matchHeader('authorization', 'token #t0k3N')
-          .reply(201);
-
-     // Run
-     setAccessToken().then(() => {
-        updateStatus(data).then(() => {
-           scope.isDone();
-           done();
-        });
-     });
-   });
-
-   it('updateStatus should validate data', (done) => {
-      expect(() => updateStatus({sha: null})).to.throw(ReferenceError, 'SHA');
-      let testable = () => updateStatus({status: 'working', sha: SHA});
-      expect(testable).to.throw(APIError, 'status');
-      scope.isDone();
-      done();
+      setAccessToken().then(async function () {
+         await setAccessToken();
+         scope.isDone();
+         done();
+      });
    });
 
    after(function() {
       clock.restore();
+   });
+});
+
+
+/**
+ * This tests 'updateStatus' which handles updating the GitHub statues.
+ */
+describe("updateStatus", () => {
+   var scope;  // Our server mock
+   var spy;  // A spy for authentication
+   var data;  // Some job data to update the status with
+
+   beforeEach(function() {
+      // Mock for App.installationAccessToken
+      scope = nock('https://api.github.com', {
+         reqheaders: {
+            accept: 'application/vnd.github.machine-man-preview+json',
+         }
+      });
+      const token = {token: '#t0k3N'};
+      spy = sinon.stub(appAuth, 'createAppAuth').returns(async () => token);
+      data = {
+         sha: SHA,
+         owner: 'okonkwe',
+         repo: 'borneo-function',
+         status: 'success',
+         description: ''
+      };
+   });
+
+   it('updateStatus should post to given endpoint', (done) => {
+      scope.get(`/repos/${process.env.REPO_OWNER}/${process.env.REPO_NAME}/installation`)
+           .reply(201, {id: APP_ID});
+      scope.post(`/repos/${data['owner']}/${data['repo']}/statuses/${data['sha']}`).reply(201);
+      updateStatus(data).then(() => {
+         expect(spy.calledOnce).true;
+         scope.isDone();
+         done();
+      });
+   });
+
+   it('updateStatus should contain the correct data', (done) => {
+      data.base = 'dcb375f0';
+      data.description = 'Lorem ipsum '.repeat(13);  // Check max char
+      data.context = 'ci/test';
+      const uri = `/repos/${data['owner']}/${data['repo']}/statuses/${data['sha']}`;
+      const url = `${process.env.WEBHOOK_PROXY_URL}/${ENDPOINT}/${data.sha}`;  // target URL
+      const requestBodyMatcher = (body) => {
+         return body.state === data.status &&
+                body.target_url === url &&
+                body.description.length <= 140 &&
+                body.context === data.context;
+      };
+      scope.get(`/repos/${process.env.REPO_OWNER}/${process.env.REPO_NAME}/installation`)
+           .reply(201, {id: APP_ID});
+      scope.post(uri, requestBodyMatcher)
+           .matchHeader('authorization', 'token #t0k3N')
+           .reply(201);
+
+     // Run
+      updateStatus(data, url).then(() => {
+         expect(spy.calledOnce).true;
+         scope.isDone();
+         done();
+      });
+   });
+
+   it('updateStatus should validate SHA', () => {
+      return updateStatus({sha: null}).catch(err => {
+         expect(err).to.be.instanceOf(ReferenceError);
+         expect(err).to.have.property('message', 'undefined or invalid sha');
+         expect(spy.called).false;
+      });
+   });
+
+   it('updateStatus should validate status', () => {
+      return updateStatus({status: 'working', sha: SHA}).catch(err => {
+         expect(err).to.be.instanceOf(APIError);
+         expect(err.message).to.contain('status');
+         expect(spy.called).false;
+      });
+   });
+
+   afterEach(function() {
+      spy.restore();
    });
 });
 
@@ -319,7 +399,7 @@ describe('logs endpoint', () => {
 
 
 /**
- * This tests the coverage endpoint endpoint.  Directly accessing endpoint should return 403.
+ * This tests the coverage endpoint.  Directly accessing endpoint should return 403.
  */
 describe('coverage endpoint', () => {
 
@@ -356,4 +436,83 @@ describe('coverage endpoint', () => {
       })
 
    })
+});
+
+
+/**
+ * This tests the runtests and prepareEnv functions.
+ */
+describe('running tests', () => {
+   var sandbox;  // Sandbox for spying on queue
+   var stub;  // Main fileExec stub
+
+   beforeEach(function () {
+      queue.process(async (_job, _done) => {})  // nop
+      sandbox = sinon.createSandbox()
+      stub = sandbox.stub(cp, 'execFile');
+      sandbox.stub(fs, 'createWriteStream');
+      execEvent = new events.EventEmitter();
+      execEvent.stdout = new events.EventEmitter();
+      execEvent.stdout.pipe = sandbox.spy();
+      stub.returns(execEvent);
+   });
+
+   it('test prepareEnv', async () => {
+      const callback = sandbox.spy();
+      stub.callsArgAsync(2, null, 'preparing', '');
+      const job = {data: {sha: SHA}};
+      await prepareEnv(job, callback);
+      let log = path.join(config.dataPath, 'reports', SHA, 'std_output-cabe27e.log');
+      let fn = path.resolve(path.join(__dirname, '..', 'prep_env.BAT'));
+      stub.calledWith(fn, [SHA, config.repo, config.dataPath]);
+      sandbox.assert.calledWith(fs.createWriteStream, log);
+      expect(callback.calledOnce).true;
+      expect(callback.calledOnceWithExactly(job)).true;
+   });
+
+   it('test prepareEnv with error', async (done) => {
+      stub.callsArgWith(2, {code: 'ENOENT'}, 'preparing', '');
+      const job = {
+         data: {sha: SHA},
+         done: (err) => {
+            expect(err).instanceOf(Error);
+            expect(err.message).to.have.string('not found');
+            done();
+         }
+      };
+      prepareEnv(job);
+   });
+
+
+   xit('test runtests', async (done) => {
+      stub.callsArgWith(2, {code: 1}, 'running tests', 'Error in MATLAB_function line 23');
+      const job = {
+         data: {sha: SHA},
+         done: (err) => {
+            expect(err).instanceOf(Error);
+            // expect(err.message.startswith('Error')).star   (Error);
+            done();
+         }
+      };
+      runTests(job);
+   });
+
+   it('test runtests with error', async (done) => {
+      const errmsg = 'Error in MATLAB_function line 23';
+      stub.callsArgWith(2, {code: 1}, 'running tests', errmsg);
+      const job = {
+         data: {sha: SHA},
+         done: (err) => {
+            expect(err).instanceOf(Error);
+            expect(err.message).to.have.string(errmsg);
+            done();
+         }
+      };
+      prepareEnv(job);
+   });
+
+   afterEach(function () {
+      queue.pile = [];
+      sandbox.verifyAndRestore();
+   });
 });
