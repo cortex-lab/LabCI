@@ -3,24 +3,18 @@ const cp = require('child_process');
 const events = require('events');
 const path = require('path');
 const nock = require('nock');  // for mocking outbound requests
-const request = require('supertest')  // for mocking inbound requests
+const request = require('supertest');  // for mocking inbound requests
 const sinon = require('sinon');  // for mocking local modules
-const expect = require('chai').expect
-const assert = require('chai').assert
+const expect = require('chai').expect;
+const assert = require('chai').assert;
 const appAuth = require("@octokit/auth-app");
 
-const APIError = require('../lib').APIError
+const APIError = require('../lib').APIError;
 const { updateStatus, setAccessToken, eventCallback, srv, prepareEnv, runTests } = require('../serve');
-const queue = require('../lib').queue
-const config = require('../config/config').settings
+const queue = require('../lib').queue;
+const config = require('../config/config').settings;
+const { stdErr, token } = require('./fixtures/static');
 
-// Create a constant JWT
-const token = 'eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJpYXQiOi0zMCwiZXhwIjo1NzAsImlzcyI6MTIzfQ' +
-              '.Amivfieh9COk-89jINMvQh-LZtjLVT44aeulGNNZnFtHhFpNAg9gZGuf-LCjykHqQvibYPfPxD7L_d' +
-              'J1t49LwhErHPRpRrs-vs3HoEVQpZMmdA1oLmCJkCC0PVP0c7nalx5wvLWHIx5hQCZ3aJfAwrH2xIaWJ' +
-              'YhBKVIsR0J25O0_ouCD3JsoBu87xaTRH1yyv7COBFauBsFytkV4L0fFIVAarqPmQCWMRkEmQJn9lZZC' +
-              'VLM8o9EEQibLmmeF2CF_rLeolHfLjZkYBMd9MGLPTnEbNbQiRpqqeVft0Hg2SJuKcpsKEilTVs20JdN' +
-              'lY9eIUUDECsU6Mxoa-s_5ffWSHg';
 const APP_ID = process.env.GITHUB_APP_IDENTIFIER;
 const ENDPOINT = 'logs';  // The URL endpoint for fetching status check details
 const SHA = 'cabe27e5c8b8cb7cdc4e152f1cf013a89adc7a71'
@@ -441,6 +435,7 @@ describe('coverage endpoint', () => {
 
 /**
  * This tests the runtests and prepareEnv functions.
+ * @todo Check for log close on exit
  */
 describe('running tests', () => {
    var sandbox;  // Sandbox for spying on queue
@@ -484,20 +479,23 @@ describe('running tests', () => {
    });
 
 
-   xit('test runtests', async (done) => {
-      stub.callsArgWith(2, {code: 1}, 'running tests', 'Error in MATLAB_function line 23');
+   it('test runtests', async () => {
+      const callback = sandbox.spy();
+      stub.callsArgWith(2, null, 'running tests', '');
       const job = {
          data: {sha: SHA},
-         done: (err) => {
-            expect(err).instanceOf(Error);
-            // expect(err.message.startswith('Error')).star   (Error);
-            done();
-         }
+         done: callback
       };
-      runTests(job);
+      await runTests(job);
+      const log = path.join(config.dataPath, 'reports', SHA, 'std_output-cabe27e.log');
+      sandbox.assert.calledWith(fs.createWriteStream, log, { flags: 'a' });
+      const fn = path.resolve(path.join(__dirname, '..', 'run_tests.BAT'));
+      stub.calledWith(fn, [SHA, config.repo, config.dataPath]);
+      expect(callback.calledOnce).true;
+      expect(callback.calledOnceWithExactly()).true;
    });
 
-   it('test runtests with error', async (done) => {
+   it('runtests parses MATLAB error', async (done) => {
       const errmsg = 'Error in MATLAB_function line 23';
       stub.callsArgWith(2, {code: 1}, 'running tests', errmsg);
       const job = {
@@ -508,7 +506,21 @@ describe('running tests', () => {
             done();
          }
       };
-      prepareEnv(job);
+      runTests(job);
+   });
+
+   it('runtests parses Python error', async (done) => {
+      stub.callsArgWith(2, {code: 1}, 'running tests', stdErr);
+      const job = {
+         data: {sha: SHA},
+         done: (err) => {
+            expect(err).instanceOf(Error);
+            let errmsg = 'FileNotFoundError: Invalid data root folder E:\\FlatIron\\integration';
+            expect(err.message.startsWith(errmsg)).true;
+            done();
+         }
+      };
+      runTests(job);
    });
 
    afterEach(function () {
