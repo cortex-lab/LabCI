@@ -171,38 +171,38 @@ srv.get('/:badge/:repo/:branch', async (req, res) => {
 
 function runTests(job) {
    const debug = log.extend('runTests');
-   let runTests  // the child process
    debug('starting job timer');
-   const timer = lib.startJobTimer(job, runTests);
+   const timer = lib.startJobTimer(job);
 
    // Go ahead with tests
    const sha = job.data['sha'];
    const repoPath = getRepoPath(job.data.repo);
-   const logDir = path.join(config.dataPath, 'reports', sha);
-   const logName = path.join(logDir, `std_output-${lib.shortID(sha)}.log`);
-   fs.mkdir(path.join(config.dataPath, 'reports', sha), { recursive: true }, (err) => {
-      if (err) throw err;
-   });
+   const logName = path.join(config.dataPath, 'reports', sha, `std_output-${lib.shortID(sha)}.log`);
    let fcn = lib.fullpath(config.test_function);
    debug('starting test child process %s', fcn);
    let ops = config.shell? {'shell': config.shell} : {};
-   runTests = cp.execFile(fcn, [sha, repoPath, config.dataPath], ops, (error, stdout, stderr) => {
+   const runTests = cp.execFile(fcn, [sha, repoPath, config.dataPath], ops, (error, stdout, stderr) => {
       debug('clearing job timer');
       clearTimeout(timer);
+      delete job.data.process;
       if (error) { // Send error status
          debug('error from test function: %o', error)
          let message;
-         // Isolate error from log
-         // For MATLAB return the line that begins with 'Error'
-         let fn = (str) => { return str.startsWith('Error in \'') };
-         message = stderr.split(/\r?\n/).filter(fn).join(';');
-         // For Python, cat from the lost line that doesn't begin with whitespace
-         if (!message) {
-            let errArr = stderr.split(/\r?\n/);
-            let idx = errArr.reverse().findIndex(v => {return v.match('^\\S')});
-            message = stderr.split(/\r?\n/).slice(-idx-1).join(';');
+         if (error.killed) {
+            message = `Tests stalled after ~${(timeout / 60000).toFixed(0)} min`
+         } else {
+            // Isolate error from log
+            // For MATLAB return the line that begins with 'Error'
+            let fn = (str) => { return str.startsWith('Error in \'') };
+            message = stderr.split(/\r?\n/).filter(fn).join(';');
+            // For Python, cat from the lost line that doesn't begin with whitespace
+            if (!message) {
+               let errArr = stderr.split(/\r?\n/);
+               let idx = errArr.reverse().findIndex(v => {return v.match('^\\S')});
+               message = stderr.split(/\r?\n/).slice(-idx-1).join(';');
+            }
+            if (!message) { message = error.code; }
          }
-         if (!message) { message = error.code; }
          job.done(new Error(message));  // Propagate
       } else {
          if (!lib.updateJobFromRecord(job)) {
@@ -212,6 +212,7 @@ function runTests(job) {
          }
       }
    });
+   job.data.process = runTests;
 
    // Write output to file
    runTests.stdout.pipe(process.stdout);  // Pipe to display
@@ -238,7 +239,7 @@ function prepareEnv(job, callback) {
          log('Calling %s with args %o', config.setup_function, [sha, repoPath, logName]);
          let fcn = lib.fullpath(config.setup_function);
          let ops = config.shell? {'shell': config.shell} : {};
-         const prepEnv = cp.execFile(fcn, [sha, repoPath, logName], ops, (err, stdout, stderr) => {
+         const prepEnv = cp.execFile(fcn, [sha, repoPath, logDir], ops, (err, stdout, stderr) => {
             if (err) {
                let errmsg = (err.code === 'ENOENT')? `File "${fcn}" not found` : err.code;
                console.error('Checkout failed: ' + (stderr || errmsg));
@@ -248,11 +249,12 @@ function prepareEnv(job, callback) {
             callback(job);
          });
          prepEnv.stdout.pipe(process.stdout);
-         fs.mkdir(path.parse(logName)['dir'], {recursive: true}, () => {
+         fs.mkdir(path.join(logDir), { recursive: true }, (err) => {
+            if (err) throw err;
             let logDump = fs.createWriteStream(logName, { flags: 'w' });
             prepEnv.stdout.pipe(logDump);
             prepEnv.on('exit', () => { logDump.close(); });
-         }).catch();
+         });
          return prepEnv;
    }
 }

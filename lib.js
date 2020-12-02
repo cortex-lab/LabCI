@@ -225,21 +225,15 @@ const openTunnel = async () => {
 
 
 /**
- * Updates the status of a Github check, given an object of data from a Job.
- * @param {Object} job - The Job to be updated upon timeout.
- * @param {ChildProcess} childProcess - The process to kill upon timeout.  The process should
- * cancel the returned timer in its callback.
- * @param {Function} done - Callback on complete (optional).
+ * Starts a timer with a callback to kill the job's process.
+ * @param {Object} job - The Job with an associated process in the data field.
  * @returns {number} - A timeout object.
  */
-function startJobTimer(job, childProcess, done=null) {
+function startJobTimer(job) {
    const timeout = config.timeout || 8*60000;  // How long to wait for the tests to run
    return setTimeout(() => {
       console.log('Max test time exceeded');
-      let message = `Tests stalled after ~${(timeout / 60000).toFixed(0)} min`;
-      childProcess.kill();
-      if (done === null) { done = job.done; }
-      done(new Error(message));
+      job.data.process.kill();
    }, timeout);
 }
 
