@@ -178,13 +178,15 @@ function runTests(job) {
    // Go ahead with tests
    const sha = job.data['sha'];
    const repoPath = getRepoPath(job.data.repo);
-   const logName = path.join(config.dataPath, 'reports', sha, `std_output-${lib.shortID(sha)}.log`);
+   const logDir = path.join(config.dataPath, 'reports', sha);
+   const logName = path.join(logDir, `std_output-${lib.shortID(sha)}.log`);
    fs.mkdir(path.join(config.dataPath, 'reports', sha), { recursive: true }, (err) => {
       if (err) throw err;
    });
    let fcn = lib.fullpath(config.test_function);
    debug('starting test child process %s', fcn);
-   runTests = cp.execFile(fcn, [sha, repoPath, config.dataPath], (error, stdout, stderr) => {
+   let ops = config.shell? {'shell': config.shell} : {};
+   runTests = cp.execFile(fcn, [sha, repoPath, config.dataPath], ops, (error, stdout, stderr) => {
       debug('clearing job timer');
       clearTimeout(timer);
       if (error) { // Send error status
@@ -231,10 +233,12 @@ function prepareEnv(job, callback) {
          return callback(job);
       default:
          const sha = job.data['sha'];
-         const logName = path.join(config.dataPath, 'reports', sha, `std_output-${lib.shortID(sha)}.log`);
+         const logDir = path.join(config.dataPath, 'reports', sha);
+         const logName = path.join(logDir, `std_output-${lib.shortID(sha)}.log`);
          log('Calling %s with args %o', config.setup_function, [sha, repoPath, logName]);
          let fcn = lib.fullpath(config.setup_function);
-         const prepEnv = cp.execFile(fcn, [sha, repoPath, logName], (err, stdout, stderr) => {
+         let ops = config.shell? {'shell': config.shell} : {};
+         const prepEnv = cp.execFile(fcn, [sha, repoPath, logName], ops, (err, stdout, stderr) => {
             if (err) {
                let errmsg = (err.code === 'ENOENT')? `File "${fcn}" not found` : err.code;
                console.error('Checkout failed: ' + (stderr || errmsg));
@@ -244,9 +248,11 @@ function prepareEnv(job, callback) {
             callback(job);
          });
          prepEnv.stdout.pipe(process.stdout);
-         let logDump = fs.createWriteStream(logName, { flags: 'w' });
-         prepEnv.stdout.pipe(logDump);
-         prepEnv.on('exit', () => { logDump.close(); });
+         fs.mkdir(path.parse(logName)['dir'], {recursive: true}, () => {
+            let logDump = fs.createWriteStream(logName, { flags: 'w' });
+            prepEnv.stdout.pipe(logDump);
+            prepEnv.on('exit', () => { logDump.close(); });
+         }).catch();
          return prepEnv;
    }
 }
