@@ -425,11 +425,12 @@ async function eventCallback (event) {
   }
   const todo = config.events[eventType] || {}  // List of events to process
 
-  // Check if ref in ignore list
-  let ref_ignore = lib.ensureArray(todo.ref_ignore || []);
-  if (ref_ignore.indexOf(ref.split('/').pop()) > -1) {
-     // Do nothing if in ignore list
-     debug('Ref %s in config ignore list', ref_ignore);
+  // Check if ref in ignore list or not in include list
+  let incl = !todo.ref_ignore;  // ignore list takes precedence
+  let ref_list = lib.ensureArray(todo.ref_ignore || todo.ref_include || []);
+  if ((ref_list.indexOf(ref.split('/').pop()) === -1) === incl) {
+     // Do nothing if in ignore list, or not in include list
+     debug(`Ref ${ref} ${incl? 'not' : 'is'} in config ref_${incl? 'include' : 'ignore'} list`);
      return;
   }
 
