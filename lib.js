@@ -6,6 +6,7 @@ const path = require('path');
 
 const createDebug  = require('debug');
 const localtunnel = require('localtunnel');
+const kill = require('tree-kill');
 
 const config = require('./config/config').settings;
 const Coverage = require('./coverage');
@@ -227,13 +228,20 @@ const openTunnel = async () => {
 /**
  * Starts a timer with a callback to kill the job's process.
  * @param {Object} job - The Job with an associated process in the data field.
+ * @param {boolean} kill_children - If true all child processes are killed.
  * @returns {number} - A timeout object.
  */
-function startJobTimer(job) {
+function startJobTimer(job, kill_children=false) {
    const timeout = config.timeout || 8*60000;  // How long to wait for the tests to run
    return setTimeout(() => {
       console.log('Max test time exceeded');
-      job.data.process.kill();
+      if (kill_children) {
+         log('Killing all processes');
+         kill(job.data.process.pid);
+      } else {
+         log('Ending test process');
+         job.data.process.kill();
+      }
    }, timeout);
 }
 

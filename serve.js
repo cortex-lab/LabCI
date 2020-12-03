@@ -172,7 +172,7 @@ srv.get('/:badge/:repo/:branch', async (req, res) => {
 function runTests(job) {
    const debug = log.extend('runTests');
    debug('starting job timer');
-   const timer = lib.startJobTimer(job);
+   const timer = lib.startJobTimer(job, config.kill_children === true);
 
    // Go ahead with tests
    const sha = job.data['sha'];
@@ -186,11 +186,11 @@ function runTests(job) {
       clearTimeout(timer);
       delete job.data.process;
       if (error) { // Send error status
-         debug('error from test function: %o', error)
          let message;
-         if (error.killed) {
-            message = `Tests stalled after ~${(timeout / 60000).toFixed(0)} min`
+         if (error.killed || error.signal === 'SIGTERM') {
+            message = `Tests stalled after ~${(config.timeout / 60000).toFixed(0)} min`;
          } else {
+            debug('error from test function: %o', error)
             // Isolate error from log
             // For MATLAB return the line that begins with 'Error'
             let fn = (str) => { return str.startsWith('Error in \'') };

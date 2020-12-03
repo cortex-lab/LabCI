@@ -26,7 +26,8 @@
     "express": "^4.17.1",
     "github-webhook-handler": "^1.0.0",
     "localtunnel": "^2.0.0",
-    "shelljs": "^0.8.4"
+    "shelljs": "^0.8.4",
+    "tree-kill": "^1.2.2"
   },
   "devDependencies": {
     "chai": "^4.2.0",
@@ -39,6 +40,6 @@
     "xml2js": "^0.4.23"
   },
   "engines": {
-    "node" : ">=12.19.0"
+    "node": ">=12.19.0"
   }
 }
