@@ -91,7 +91,7 @@ class Queue extends EventEmitter {
       console.log('Job running')
     };
   }
-};
+}
 
 /** Class representing a job in the Queue. */
 class Job extends EventEmitter {
@@ -100,7 +100,7 @@ class Job extends EventEmitter {
    * Create a job object with associated data.
    * @param {number} id - Job ID (unique in current Queue pile).
    * @param {Object} data - Data to hold in object, may be used by Queue process function.
-   * @param {boolean} running - Indicates whether job is currently being processed.
+   * @property {boolean} running - Indicates whether job is currently being processed.
    * @event module:Job~end
    */
   constructor(id, data) {
@@ -115,18 +115,19 @@ class Job extends EventEmitter {
   /**
    * Set running attribute.  If setting to false from true, emit 'end' event.
    * @param {boolean} bool - Value to set running.
+   * @todo rename to be consistent with property
    */
   set isRunning(bool) {
-    if (bool == false && this.running === true) {
+    if (bool === false && this.running === true) {
       this.running = false;
       this.emit('end');
     } else {
-      if (bool == true) {
+      if (bool === true) {
         this.running = true;
       }
     }
   }
 
-};
+}
 
 module.exports = Queue; // Export Queue

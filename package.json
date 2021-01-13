@@ -1,0 +1,30 @@
+{
+  "name": "matlab-ci",
+  "version": "1.0.0",
+  "description": "A small set of modules written in Node.js for running automated tests of MATLAB code in response to GitHub events.  Also submits code coverage to the Coveralls API.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cortex-lab/matlab-ci.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/cortex-lab/matlab-ci/issues"
+  },
+  "homepage": "https://github.com/cortex-lab/matlab-ci#readme",
+  "dependencies": {
+    "@octokit/app": "^4.2.1",
+    "@octokit/request": "^5.4.9",
+    "express": "^4.17.1",
+    "localtunnel": "^2.0.0",
+    "dotenv": "^8.2.0"
+  },
+  "devDependencies": {
+    "xml2js": "^0.4.23"
+  }
+}

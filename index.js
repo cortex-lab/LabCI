@@ -6,8 +6,13 @@
  * @requires module:"@octokit/app"
  * @requires module:"@octokit/request"
  * @requires module:express
+ * @requires module:localtunnel
  * @requires module:github-webhook-handler
+ * @todo save auxiliary configuration into a separate config file
+ * @todo add abort option for when new commits added
  */
+import * as path from 'path';
+
 const fs = require('fs');
 const express = require('express')
 const srv = express();
@@ -16,18 +21,26 @@ const queue = new (require('./queue.js'))()
 const Coverage = require('./coverage');
 const { App } = require('@octokit/app');
 const { request } = require("@octokit/request");
+const localtunnel = require('localtunnel');
 
 const id = process.env.GITHUB_APP_IDENTIFIER;
 const secret = process.env.GITHUB_WEBHOOK_SECRET;
+const appdata = process.env.APPDATA || process.env.HOMEPATH;
+const dbFile = path.join(appdata, '.ci-db.json')  // cache of test results
+const config = require('./config.json');
+const timeout = config.timeout || 8*60000
 
-// Configure ssh tunnel
-const cmd = 'ssh -tt -R gladius:80:localhost:3000 serveo.net';
-const sh = String(cp.execFileSync('where', ['git'])).replace(/cmd\\git.exe\s*/gi, 'bin\\sh.exe');
-const tunnel = () => {
-  let ssh = cp.spawn(sh, ['-c', cmd])
-  ssh.stdout.on('data', (data) => { console.log(`stdout: ${data}`); });
-  ssh.on('exit', () => { console.log('Reconnecting to Serveo'); tunnel(); });
-  ssh.on('error', (e) => { console.error(e) });
+// Configure a secure tunnel
+const openTunnel = async () => {
+  let args = {
+    port: 3000,
+ 	 subdomain: process.env.TUNNEL_SUBDOMAIN,
+	 host: process.env.TUNNEL_HOST
+  };
+  const tunnel = await localtunnel(args);
+  console.log(`Tunnel open on: ${tunnel.url}`);
+  tunnel.on('close', () => {console.log('Reconnecting'); openTunnel(); });
+  tunnel.on('error', (e) => { console.error(e) });
 }
 
 // Create handler to verify posts signed with webhook secret.  Content type must be application/json
@@ -55,8 +68,8 @@ srv.post('/github', async (req, res, next) => {
         token = await app.getSignedJsonWebToken();
         //getPayloadRequest(req) GET /orgs/:org/installation
         const { data } = await request("GET /repos/:owner/:repo/installation", {
-            owner: "cortex-lab",
-            repo: "Rigbox",
+            owner: process.env.REPO_OWNER,
+            repo: process.env.REPO_NAME,
             headers: {
                 authorization: `Bearer ${token}`,
                 accept: "application/vnd.github.machine-man-preview+json"
@@ -73,16 +86,16 @@ srv.post('/github', async (req, res, next) => {
 });
 
 /**
- * Load MATLAB test results from db.json file.
+ * Load MATLAB test results from ci-db.json file.
  * @param {string, array} id - Function to call with job and done callback when.
  */
 function loadTestRecords(id) {
-  let obj = JSON.parse(fs.readFileSync('./db.json', 'utf8'));
+  let obj = JSON.parse(fs.readFileSync(dbFile, 'utf8'));
   if (!Array.isArray(obj)) obj = [obj]; // Ensure array
   let records = obj.filter(o => id.includes(o.commit));
   // If single arg return as object, otherwise keep as array
   return (!Array.isArray(id) && records.length === 1 ? records[0] : records)
-};
+}
 
 /**
  * Compare coverage of two commits and post a failed status if coverage of head commit <= base commit.
@@ -94,32 +107,33 @@ function compareCoverage(data) {
   let records = loadTestRecords(Object.values(ids));
   // Filter duplicates just in case
   records = records.filter((set => o => !set.has(o.commit) && set.add(o.commit))(new Set));
-  has_coverage = records.every(o => (typeof o.coverage !== 'undefined' && o.coverage > 0));
+  let has_coverage = records.every(o => (typeof o.coverage !== 'undefined' && o.coverage > 0));
   // Check if any errored or failed to update coverage
   if (records.filter(o => o.status === 'error').length > 0) {
     status = 'failure';
     description = 'Failed to determine coverage as tests incomplete due to errors';
   } else if (records.length === 2 && has_coverage) {
     // Ensure first record is for head commit
-    if (records[0].commit === ids.base) { records.reverse() };
+    if (records[0].commit === ids.base) { records.reverse() }
     // Calculate coverage change
     let coverage = records[0].coverage - records[1].coverage;
     status = (coverage > 0 ? 'success' : 'failure');
     description = 'Coverage ' + (coverage > 0 ? 'increased' : 'decreased')
                               + ' from ' + Math.round(records[1].coverage*100)/100 + '%'
                               + ' to ' + Math.round(records[0].coverage*100)/100 + '%';
+    // TODO Maybe remove test from pile if we already have it?
   } else {
     for (let commit in ids) {
        // Check test isn't already on the pile
        let job = queue.pile.filter(o => o.data.sha === ids[commit]);
        if (job.length > 0) { // Already on pile
           // Add coverage key to job data structure
-          if (typeof job[0].data.coverage === 'undefined') { job[0].data.coverage = ids; };
+          if (typeof job[0].data.coverage === 'undefined') { job[0].data.coverage = ids; }
        } else { // Add test to queue
           queue.add({
              skipPost: true,
              sha: ids[commit],
-             owner: 'cortex-lab', // @todo Generalize repo owner
+             owner: process.env.REPO_OWNER,
              repo: data.repo,
              status: '',
              context: '',
@@ -128,10 +142,10 @@ function compareCoverage(data) {
        }
     }
     return;
-  };
+  }
   // Post a our coverage status
   request('POST /repos/:owner/:repo/statuses/:sha', {
-          owner: 'cortex-lab',
+          owner: process.env.REPO_OWNER,
           repo: data.repo,
           headers: {
               authorization: `token ${installationAccessToken}`,
@@ -141,21 +155,24 @@ function compareCoverage(data) {
           state: status,
           target_url: `${process.env.WEBHOOK_PROXY_URL}/events/${ids.head}`, // fail
           description: description,
-          context: 'coverage/ZTEST'
+          context: `coverage/${process.env.USERDOMAIN}`
   });
-};
+}
 
 // Serve the test results for requested commit id
 srv.get('/github/:id', function (req, res) {
   console.log('Request for test log for commit ' + req.params.id.substring(0,6))
-  let log = `.\\src\\matlab_tests-${req.params.id}.log`;
+  let log = `.\\src\\matlab_tests-${req.params.id}.log`;  // TODO Generalize
   fs.readFile(log, 'utf8', (err, data) => {
     if (err) {
     	res.statusCode = 404;
     	res.send(`Record for commit ${req.params.id} not found`);
     } else {
     	res.statusCode = 200;
-      res.send(data);
+    	let preText = '<html lang="en-GB"><body><pre>';
+    	let postText = '</pre></body></html>';
+      res.send(preText + data + postText);
+
     }
   });
   /*
@@ -174,7 +191,7 @@ srv.get('/coverage/:repo/:branch', async (req, res) => {
   // Find head commit of branch
   try {
     const { data } = await request('GET /repos/:owner/:repo/git/refs/heads/:branch', {
-      owner: 'cortex-lab', // @todo Generalize repo owner
+      owner: process.env.REPO_OWNER,
       repo: req.params.repo,
       branch: req.params.branch
     });
@@ -183,9 +200,9 @@ srv.get('/coverage/:repo/:branch', async (req, res) => {
       let id = data.object.sha;
       var report = {'schemaVersion': 1, 'label': 'coverage'};
       try { // Try to load coverage record
-        record = await loadTestRecords(id);
-        if (typeof record == 'undefined' || record['coverage'] == '') {throw 404}; // Test not found for commit
-        if (record['status'] === 'error') {throw 500}; // Test found for commit but errored
+        let record = await loadTestRecords(id);
+        if (typeof record == 'undefined' || record['coverage'] == '') {throw 404} // Test not found for commit
+        if (record['status'] === 'error') {throw 500} // Test found for commit but errored
         report['message'] = Math.round(record['coverage']*100)/100 + '%';
         report['color'] = (record['coverage'] > 75 ? 'brightgreen' : 'red');
       } catch (err) { // No coverage value
@@ -193,12 +210,12 @@ srv.get('/coverage/:repo/:branch', async (req, res) => {
         report['color'] = 'orange';
         // Check test isn't already on the pile
         let onPile = false;
-        for (let job of queue.pile) { if (job.id === id) { onPile = true; break; } };
+        for (let job of queue.pile) { if (job.id === id) { onPile = true; break; } }
         if (!onPile) { // Add test to queue
           queue.add({
             skipPost : true,
             sha: id,
-            owner: 'cortex-lab', // @todo Generalize repo owner
+            owner: process.env.REPO_OWNER,
             repo: req.params.repo,
             status: '',
             context: ''});
@@ -206,7 +223,7 @@ srv.get('/coverage/:repo/:branch', async (req, res) => {
       } finally { // Send report
         res.setHeader('Content-Type', 'application/json');
         res.end(JSON.stringify(report));}
-    } else { throw 404 }; // Specified repo or branch not found
+    } else { throw 404 } // Specified repo or branch not found
   } catch (error) {
     let msg = (error === 404 ? `${req.params.repo}/${req.params.branch} not found` : error); // @fixme error thrown by request not 404
     console.error(msg)
@@ -220,7 +237,7 @@ srv.get('/status/:repo/:branch', async (req, res) => {
   // Find head commit of branch
   try {
     const { data } = await request('GET /repos/:owner/:repo/git/refs/heads/:branch', {
-      owner: 'cortex-lab', // @todo Generalize repo owner
+      owner: process.env.REPO_OWNER,
       repo: req.params.repo,
       branch: req.params.branch
     });
@@ -230,7 +247,7 @@ srv.get('/status/:repo/:branch', async (req, res) => {
       var report = {'schemaVersion': 1, 'label': 'build'};
       try { // Try to load coverage record
         record = await loadTestRecords(id);
-        if (typeof record == 'undefined' || record['status'] == '') {throw 404}; // Test not found for commit
+        if (typeof record == 'undefined' || record['status'] == '') {throw 404} // Test not found for commit
         report['message'] = (record['status'] === 'success' ? 'passing' : 'failing');
         report['color'] = (record['status'] === 'success' ? 'brightgreen' : 'red');
       } catch (err) { // No coverage value
@@ -238,12 +255,12 @@ srv.get('/status/:repo/:branch', async (req, res) => {
         report['color'] = 'orange';
         // Check test isn't already on the pile
         let onPile = false;
-        for (let job of queue.pile) { if (job.id === id) { onPile = true; break; } };
+        for (let job of queue.pile) { if (job.id === id) { onPile = true; break; } }
         if (!onPile) { // Add test to queue
           queue.add({
             skipPost: true,
             sha: id,
-            owner: 'cortex-lab', // @todo Generalize repo owner
+            owner: process.env.REPO_OWNER,
             repo: req.params.repo,
             status: '',
             context: ''});
@@ -251,7 +268,7 @@ srv.get('/status/:repo/:branch', async (req, res) => {
       } finally { // Send report
         res.setHeader('Content-Type', 'application/json');
         res.end(JSON.stringify(report));}
-    } else { throw 404 }; // Specified repo or branch not found
+    } else { throw 404 } // Specified repo or branch not found
   } catch (error) {
     let msg = (error === 404 ? `${req.params.repo}/${req.params.branch} not found` : error); // @fixme error thrown by request not 404
     console.error(msg)
@@ -266,10 +283,10 @@ queue.process(async (job, done) => {
   // job.id contains id of this job.
   var sha = job.data['sha']; // Retrieve commit hash
   // If the repo is a submodule, modify path
-  var path = process.env.RIGBOX_REPO_PATH;
+  var path = process.env.REPO_PATH;
   if (job.data['repo'] === 'alyx-matlab' || job.data['repo'] === 'signals') {
-    path = path + '\\' + job.data['repo'];}
-  if (job.data['repo'] === 'alyx') { sha = 'dev' }; // For Alyx checkout master
+    path = path + path.sep + job.data['repo'];}
+  if (job.data['repo'] === 'alyx') { sha = 'dev' } // For Alyx checkout master
   // Checkout commit
   checkout = cp.execFile('checkout.bat ', [sha, path], (error, stdout, stderr) => {
      if (error) { // Send error status
@@ -285,12 +302,13 @@ queue.process(async (job, done) => {
      const timer = setTimeout(function() {
       	  console.log('Max test time exceeded')
       	  job.data['status'] = 'error';
-           job.data['context'] = 'Tests stalled after ~2 min';
-           runTests.kill();
-      	  done(new Error('Job stalled')) }, 5*60000);
+          job.data['context'] = `Tests stalled after ~${(timeout / 60000).toFixed(0)} min`;
+          runTests.kill();
+      	  done(new Error('Job stalled')) }, timeout);
      let args = ['-r', `runAllTests (""${job.data.sha}"",""${job.data.repo}"")`,
-       '-wait', '-log', '-nosplash', '-logfile', `.\\src\\matlab_tests-${job.data.sha}.log`];
-     runTests = cp.execFile('matlab', args, (error, stdout, stderr) => {
+       '-wait', '-log', '-nosplash', '-logfile', `.\\src\\matlab_tests-${job.data.sha}.log`];  // TODO Generalize
+     let program = config.program || 'matlab'
+     runTests = cp.execFile(program, args, (error, stdout, stderr) => {
        clearTimeout(timer);
        if (error) { // Send error status
          // Isolate error from log
@@ -315,11 +333,11 @@ queue.process(async (job, done) => {
  */
 queue.on('finish', job => { // On job end post result to API
   console.log(`Job ${job.id} complete`)
-  // If job was part of coverage test and error'd, call compare function 
+  // If job was part of coverage test and error'd, call compare function
   // (otherwise this is done by the on complete callback after writing coverage to file)
-  if (typeof job.data.coverage !== 'undefined' && job.data['status'] == 'error') { 
-    compareCoverage(job.data); 
-  };
+  if (typeof job.data.coverage !== 'undefined' && job.data['status'] === 'error') {
+    compareCoverage(job.data);
+  }
   if (job.data.skipPost === true) { return; }
   request("POST /repos/:owner/:repo/statuses/:sha", {
     owner: job.data['owner'],
@@ -331,7 +349,7 @@ queue.on('finish', job => { // On job end post result to API
     state: job.data['status'],
     target_url: `${process.env.WEBHOOK_PROXY_URL}/github/${job.data.sha}`, // FIXME replace url
     description: job.data['context'],
-    context: 'continuous-integration/ZTEST'
+    context: `continuous-integration/${process.env.USERDOMAIN}`
   });
 });
 
@@ -350,20 +368,20 @@ queue.on('complete', job => { // On job end post result to API
       hits += file.coverage.filter(x => x > 0).length;
     }
     // Load data and save
-    let records = JSON.parse(fs.readFileSync('./db.json', 'utf8'));
+    let records = JSON.parse(fs.readFileSync(dbFile, 'utf8'));
     if (!Array.isArray(records)) records = [records]; // Ensure array
     for (let o of records) { if (o.commit === job.data.sha) {o.coverage = hits / (hits + misses) * 100; break; }} // Add percentage
     // Save object
-    fs.writeFile('./db.json', JSON.stringify(records), function(err) {
+    fs.writeFile(dbFile, JSON.stringify(records), function(err) {
     if (err) { console.log(err); return; }
     // If this test was to ascertain coverage, call comparison function
-    if (typeof job.data.coverage !== 'undefined') { compareCoverage(job.data); };
+    if (typeof job.data.coverage !== 'undefined') { compareCoverage(job.data); }
     });
   });
 });
 
 // Let fail silently: we report error via status
-queue.on('error', err => {return;});
+queue.on('error', err => {});
 // Log handler errors
 handler.on('error', function (err) {
   console.error('Error:', err.message)
@@ -381,7 +399,7 @@ handler.on('push', async function (event) {
     let head_commit = event.payload.head_commit.id;
     // Post a 'pending' status while we do our tests
     await request('POST /repos/:owner/:repo/statuses/:sha', {
-            owner: 'cortex-lab',
+            owner: process.env.REPO_OWNER,
             repo: event.payload.repository.name,
             headers: {
                 authorization: `token ${installationAccessToken}`,
@@ -391,12 +409,12 @@ handler.on('push', async function (event) {
             state: 'pending',
             target_url: `${process.env.WEBHOOK_PROXY_URL}/events/${head_commit}`, // fail
             description: 'Tests running',
-            context: 'continuous-integration/ZTEST'
+            context: `continuous-integration/${process.env.USERDOMAIN}`
     });
     // Add a new test job to the queue
     queue.add({
         sha: head_commit,
-        owner: 'cortex-lab', // @todo Generalize repo owner field
+        owner: process.env.REPO_OWNER,
         repo: event.payload.repository.name,
         status: '',
         context: ''
@@ -407,6 +425,8 @@ handler.on('push', async function (event) {
 // Handle pull request events
 // Here we'll update coverage
 handler.on('pull_request', async function (event) {
+  // Ignore documentation branches
+  if (event.payload.pull_request.head.ref === 'documentation') { return; }
   // Log the event
   console.log('Received a pull_request event for %s to %s',
     event.payload.pull_request.head.repo.name,
@@ -418,7 +438,7 @@ handler.on('pull_request', async function (event) {
     if (false) { // TODO for alyx only
       // Post a 'pending' status while we do our tests
       await request('POST /repos/:owner/:repo/statuses/:sha', {
-          owner: 'cortex-lab',
+          owner: process.env.REPO_OWNER,
           repo: event.payload.repository.name,
           headers: {
               authorization: `token ${installationAccessToken}`,
@@ -428,13 +448,13 @@ handler.on('pull_request', async function (event) {
           state: 'pending',
           target_url: `${process.env.WEBHOOK_PROXY_URL}/events/${head_commit}`, // fail
           description: 'Tests running',
-          context: 'continuous-integration/ZTEST'
+          context: `continuous-integration/${process.env.USERDOMAIN}`
       });
-    };
+    }
 
     // Post a 'pending' status while we do our tests
     request('POST /repos/:owner/:repo/statuses/:sha', {
-          owner: 'cortex-lab',
+          owner: process.env.REPO_OWNER,
           repo: event.payload.repository.name,
           headers: {
               authorization: `token ${installationAccessToken}`,
@@ -444,11 +464,11 @@ handler.on('pull_request', async function (event) {
           state: 'pending',
           target_url: `${process.env.WEBHOOK_PROXY_URL}/events/${head_commit}`, // fail
           description: 'Checking coverage',
-          context: 'coverage/ZTEST'
+          context: `coverage/${process.env.USERDOMAIN}`
     });
     // Check coverage exists
     let data = {
-      repo: event.payload.repository.name, 
+      repo: event.payload.repository.name,
       coverage: {head: head_commit, base: base_commit}
     };
     compareCoverage(data);
@@ -462,8 +482,9 @@ var server = srv.listen(3000, function () {
 
    console.log("Handler listening at http://%s:%s", host, port)
 });
+
 // Start tunnel
-tunnel();
+openTunnel();
 
 // Log any unhandled errors
 process.on('unhandledRejection', (reason, p) => {
