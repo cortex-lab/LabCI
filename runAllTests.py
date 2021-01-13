@@ -14,12 +14,17 @@ from pathlib import Path
 from typing import Iterable, List, Union
 
 from coverage import Coverage
+from coverage.misc import CoverageException
 
-import ibllib
 from ibllib.misc.flatten import flatten
 from ibllib.misc.version import ibllib as ver
 
 logger = logging.getLogger('ibllib')
+
+try:  # Import the test packages
+    import brainbox.tests, ci.tests, ibllib, ibllib_tests
+except ModuleNotFoundError as ex:
+    logger.warning(f'Failed to import test packages: {ex} encountered')
 
 
 def list_tests(suite: Union[List, unittest.TestSuite, unittest.TestCase]) -> Union[List[str], str]:
@@ -36,29 +41,80 @@ def list_tests(suite: Union[List, unittest.TestSuite, unittest.TestCase]) -> Uni
         return f'{suite.__class__.__name__}/{suite._testMethodName}'
 
 
+def generate_coverage_report(cov, save_path, strict=False, relative_to=None):
+    """
+    Generates HTML and XML reports of test coverage and returns the total coverage
+    :param cov: A Coverage object
+    :param save_path: Where to save the coverage files
+    :param strict: If True, asserts that the coverage report was created
+    :param relative_to: coverage.misc.CoverageException
+    :return:
+    """
+    try:
+        total = cov.html_report(directory=str(save_path))
+        cov.xml_report(outfile=str(save_path.joinpath('CoverageResults.xml')))
+        success = save_path.joinpath('CoverageResults.xml').exists()
+        assert not strict or success, 'failed to generate XML coverage'
+    except (CoverageException, AssertionError) as ex:
+        if strict:
+            raise ex
+        total = None
+        logger.error('Failed to save coverage: %s', ex)
+
+    if relative_to:
+        # Rename the HTML files for readability and to obscure the server's directory structure
+        pattern = re.sub(r'^[a-zA-Z]:[/\\]|[/\\]', '_', str(relative_to.parent)) + '_'  # / -> _
+        for file in Path(save_path).glob('*.html'):  # Open each html report file
+            with open(file, 'r') as f:
+                data = f.read()
+                data = data.replace(pattern, '')  # Remove long paths in filename links
+                data = data.replace(str(relative_to.parent) + sep, '')  # Remove from text
+            with open(file, 'w') as f:
+                f.write(data)  # Write back into file
+            file.rename(str(file).replace(pattern, ''))  # Rename file
+    return total
+
+
 def run_tests(coverage_source: Iterable = None,
-              complete: bool = True) -> (unittest.TestResult, Coverage, unittest.TestSuite):
+              complete: bool = True,
+              strict: bool = True,
+              dry_run: bool = False) -> (unittest.TestResult, Coverage, unittest.TestSuite):
     """
     Run integration tests
     :param coverage_source: An iterable of source directory path strings for recording code
-    coverage
-    :param complete: When true ibllib unit tests are run in addition to the integration tests
-    return: Test results and coverage objects, and test suite
+    coverage.
+    :param complete: When true ibllib unit tests are run in addition to the integration tests.
+    :param strict: When true asserts that all gathered tests were successfully imported.  This
+    means that a module not found error in any test module will raise an exception.
+    :param dry_run: When true the tests are gathered but not run.
+    :return Test results and coverage objects, and test suite.
     """
     # Coverage recorded for all code within the source directory; otherwise just omit some
     # common pyCharm files
     options = {'omit': ['*pydevd_file_utils.py', 'test_*'], 'source': coverage_source}
 
     # Gather tests
-    test_dir = str(Path(__file__).absolute().parents[1].joinpath('iblscripts', 'ci', 'tests'))
-    # test_dir = str(Path(iblscripts.__file__).parent)
+    test_dir = str(Path(ci.tests.__file__).parent)
+    logger.info(f'Loading integration tests from {test_dir}')
     ci_tests = unittest.TestLoader().discover(test_dir, pattern='test_*')
-    if complete:  # include ibllib unit tests
-        test_dir = Path(ibllib.__file__).parents[1]
-        assert test_dir.exists(), 'Can not find unit tests for ibllib'
-        # test_dir = str(Path(__file__).absolute().parents[1].joinpath('ibllib', 'tests'))
-        unit_tests = unittest.TestLoader().discover(str(test_dir), pattern='test_*')
-        ci_tests = unittest.TestSuite((ci_tests, unit_tests))
+    if complete:  # include ibllib and brainbox unit tests
+        root = Path(ibllib.__file__).parents[1]  # Search relative to our imported ibllib package
+        test_dirs = [root.joinpath(x) for x in ('tests_ibllib', 'brainbox')]
+        logger.info('Loading unit tests from folders: \n\t' + "\n\t".join(map(str, test_dirs)))
+        assert not strict or all(x.exists() for x in test_dirs), 'Failed to find unit test folders'
+        unit_tests = [unittest.TestLoader().discover(str(x), pattern='test_*') for x in test_dirs]
+        # Merge all tests
+        ci_tests = unittest.TestSuite((ci_tests, *unit_tests))
+
+    # Check all tests loaded successfully
+    not_loaded = [x[12:] for x in list_tests(ci_tests) if x.startswith('_Failed')]
+    if len(not_loaded) != 0:
+        err_msg = 'Failed to import the following tests:\n\t' + '\n\t'.join(not_loaded)
+        assert not strict, err_msg
+        logger.warning(err_msg)
+
+    if dry_run:
+        return unittest.TestResult(), Coverage(**options), ci_tests
 
     # Run tests with coverage
     cov = Coverage(**options)
@@ -82,7 +138,7 @@ if __name__ == "__main__":
       python runAllTests.py -l C:\Users\User\AppData\Roaming\CI
       python runAllTests.py -l ~/.ci
     """
-    # logfile = Path(__file__).parent.joinpath('lines.txt')
+    # Defaults
     root = Path(__file__).parent.absolute()  # Default root folder
     repo_dir = Path(ibllib.__file__).parent  # Default repository source for coverage
     version = ver()
@@ -95,6 +151,7 @@ if __name__ == "__main__":
                         help='commit id.  If none provided record isn''t saved')
     parser.add_argument('--logdir', '-l', help='the log path', default=root)
     parser.add_argument('--repo', '-r', help='repo directory', default=repo_dir)
+    parser.add_argument('--dry-run', help='gather tests without running', action='store_true')
     args = parser.parse_args()  # returns data from the options specified (echo)
 
     # Paths
@@ -110,25 +167,13 @@ if __name__ == "__main__":
     logger.setLevel(logging.INFO)
 
     # Tests
-    logger.info(args.repo.joinpath('*'))
-    result, cov, test_list = run_tests(coverage_source=[str(args.repo)])
+    logger.info(Path(args.repo).joinpath('*'))
+    result, cov, test_list = run_tests(coverage_source=[str(args.repo)], dry_run=args.dry_run)
 
     # Generate report
     logger.info('Saving coverage report to %s', report_dir)
-    total = cov.html_report(directory=str(report_dir))
-    cov.xml_report(outfile=str(report_dir.joinpath('CoverageResults.xml')))
-    assert report_dir.joinpath('CoverageResults.xml').exists(), 'failed to generate XML coverage'
-
-    # Rename the HTML files; this is to obscure the server's directory structure when serving files
-    pattern = re.sub(r'^[a-zA-Z]:[/\\]|[/\\]', '_', str(repo_dir.parent)) + '_'  # slash -> _
-    for file in report_dir.glob('*.html'):  # Open each html report file
-        with open(file, 'r') as f:
-            data = f.read()
-            data = data.replace(pattern, '')  # Remove long paths in filename links
-            data = data.replace(str(repo_dir.parent) + sep, '')  # Remove from text
-        with open(file, 'w') as f:
-            f.write(data)  # Write back into file
-        file.rename(str(file).replace(pattern, ''))  # Rename file
+    total = generate_coverage_report(cov, report_dir,
+                                     relative_to=repo_dir, strict=not args.dry_run)
 
     # When running tests without a specific commit, exit without saving the result
     if args.commit is parser.get_default('commit'):
@@ -147,7 +192,7 @@ if __name__ == "__main__":
         details = list_tests(test_list)
 
     report = {
-        'commit': args.commit,
+        'commit': args.commit + ('_dry-run' if args.dry_run else ''),
         'results': details,
         'status': status,
         'description': description,
