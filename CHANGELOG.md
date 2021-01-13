@@ -1,6 +1,6 @@
 # Changelog
 
-## [Latest](https://github.com/cortex-lab/matlab-ci/commits/master) [2.2.0]
+## [Latest](https://github.com/cortex-lab/matlab-ci/commits/master) [1.2.0]
 
 ### Modified
 
@@ -11,7 +11,7 @@
 - generalized some variables such as repo owner, ci context
 - updated documentation
 
-## [2.1.0]
+## [1.1.0]
 ### Added
 
 - coverage increase check on pull request events
@@ -29,7 +29,7 @@
 - skip checks for commits to branches named 'documentation'
 >>>>>>> master
 
-## [2.0.0]
+## [1.0.0]
 ### Added
 
 - changelog
