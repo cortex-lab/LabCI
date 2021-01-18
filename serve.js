@@ -148,7 +148,7 @@ srv.get('/:badge/:repo/:branch', async (req, res) => {
    const data = {
       owner: process.env['REPO_OWNER'],
       repo: req.params.repo,
-      branch: req.params.branch,
+      branch: req.params.branch
    }
    // Find head commit of branch
    return request('GET /repos/:owner/:repo/git/refs/heads/:branch', data)

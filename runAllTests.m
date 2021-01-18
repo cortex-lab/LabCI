@@ -6,11 +6,12 @@ function runAllTests(id, repo, logDir)
 % @body Technically two different repos can have the same commit hash, in
 % which case the db.json file should be restructured
 % v1.1.2
-if nargin < 2; repo = 'rigbox'; end
-if nargin < 1; id = []; end
+if nargin < 2, repo = 'rigbox'; end
+if nargin < 1, id = []; end
+if nargin < 3, logDir = fullfile(getenv('appdata'), 'CI'); end
 try
   %% Initialize enviroment
-  dbPath = fullfile(logDir, 'db.json'); % TODO Load from config file
+  dbPath = fullfile(logDir, '.db.json'); % TODO Load from config file
   fprintf('Running tests\n')
   fprintf('Repo = %s, sha = %s\n', repo, id)
   origDir = pwd;
@@ -58,11 +59,20 @@ try
   [~, all_tests] = fun.filter(is_perf, all_tests);
 
   runner = TestRunner.withTextOutput;
-  reportFile = fullfile(fileparts(dbPath), 'CoverageResults.xml');
+  reportFolder = fullfile(logDir, 'reports', id);
+  reportFile = fullfile(reportFolder, 'CoverageResults.xml');
   reportFormat = CoberturaFormat(reportFile);
   plugin = CodeCoveragePlugin.forFolder(root, 'Producing', reportFormat, ...
       'IncludingSubfolders', true);
   runner.addPlugin(plugin)
+  % @todo Possible to output HTML also?
+  if ~verLessThan('matlab', '9.6')
+%     import matlab.unittest.plugins.codecoverage.CoverageReport
+    reportFormat = CoverageReport(reportFolder);
+    plugin = CodeCoveragePlugin.forFolder(root, 'Producing', reportFormat, ...
+      'IncludingSubfolders', true);
+    runner.addPlugin(plugin)
+  end
 
   results = runner.run(all_tests);
   assert(now - file.modDate(reportFile) < 0.001, ...
@@ -82,7 +92,7 @@ try
     'results', results, ...
     'status', status, ...
     'description', context, ...
-    'coverage', []); % Coverage updated by Node.js script
+    'coverage', nan); % Coverage updated by Node.js script
   if file.exists(dbPath)
     data = jsondecode(fileread(dbPath));
     idx = strcmp(id, {data.commit}); % Check record exists for this commit

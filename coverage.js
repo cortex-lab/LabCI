@@ -63,7 +63,7 @@ function formatCoverage(classList, srcPath, sha) {
   classList.forEach( async c => {
     let file = {}; // Initialize file object
     let fullPath = c.$.filename.startsWith(srcPath)? c.$.filename : path.join(srcPath, c.$.filename);
-    var digest = md5(srcPath + c.$.filename); // Create digest and line count for file // FIXME use path lib
+    var digest = md5(fullPath); // Create digest and line count for file // FIXME use path lib
     let lines = new Array(digest.count).fill(null); // Initialize line array the size of source code file
     c.lines[0].line.forEach(ln => {
       let n = Number(ln.$.number);
@@ -101,7 +101,7 @@ function coverage(path, repo, sha, callback) {
   fs.readFile(path, function(err, data) { // Read in XML file
     // @fixme deal with file not found errors
     if (err) {throw err}
-     parser.parseString(data, function (err, result) { // Parse XML
+    parser.parseString(data, function (err, result) { // Parse XML
         // Extract root code path
         const rootPath = (result.coverage.sources[0].source[0] || process.env.REPO_PATH).replace(/[\/|\\]+$/, '')
         assert(rootPath.toLowerCase().endsWith(repo || process.env.REPO_NAME), 'Incorrect source code repository')
@@ -124,7 +124,9 @@ function coverage(path, repo, sha, callback) {
             if (e.$.filename.startsWith('wheelAnalysis\\')) {modules.wheelAnalysis.push(e); return false;}
             else {return true}
         });
-        formatCoverage(modules[(repo || 'main').toLowerCase()], rootPath, callback);
+        // Select module
+        modules = modules[repo.toLowerCase()] || modules['main'];
+        formatCoverage(modules, rootPath, callback);
      });
   });
 }

@@ -182,7 +182,7 @@ function chain(func) {
 /**
  * Check if job already has record, if so, update from record and finish, otherwise call tests function.
  * @param {Object} job - Job object which is being processed.
- * @param {Function} func - The tests function to run, e.g. `runTestsMATLAB` or `runTestsPython`.
+ * @param {Function} func - The tests function to run, e.g. `runTests`.
  */
 function shortCircuit(job, func=null) {
    // job.data contains the custom data passed when the job was created
@@ -279,7 +279,8 @@ function computeCoverage(job) {
       return;
     }
     // If this test was to ascertain coverage, call comparison function
-    if ((job.data.context || '').startsWith('coverage')) { compareCoverage(job); }
+    let toCompare = (job.data.context || '').startsWith('coverage') && job.data.base;
+    if (toCompare) { compareCoverage(job); }
     });
   });
 }
