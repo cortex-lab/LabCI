@@ -1,7 +1,23 @@
 # Changelog
 
-## [Latest](https://github.com/cortex-lab/matlab-ci/commits/master) [2.2.0]
+## [Latest](https://github.com/cortex-lab/matlab-ci/commits/master) [2.0.0]
+### Added
 
+ - there are now three major modules: lib, serve and main
+ - lots and lots of new tests
+ - support for running any tests: now CI calls a custom shell script
+ - new settings file and config module to validate settings
+ - branch pass list option in settings
+
+ 
+### Modified
+ 
+ - complete rewrite of code
+ - index.js renamed to main.js
+ - preparing the environment may be optional
+ 
+   
+## [1.2.0]
 ### Modified
 
 - test log formatted in html
@@ -9,7 +25,7 @@
 - switch from Serveo to localtunnel
 - increased timeout from 5 to 8 minutes
 
-## [2.1.0]
+## [1.1.0]
 ### Added
 
 - coverage increase check on pull request events
@@ -23,7 +39,7 @@
 - filter out performance tests
 - skip tests for commits to branches named 'documentation'
 
-## [2.0.0]
+## [1.0.0]
 ### Added
 
 - changelog
