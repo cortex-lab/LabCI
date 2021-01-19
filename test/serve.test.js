@@ -528,3 +528,67 @@ describe('running tests', () => {
       sandbox.verifyAndRestore();
    });
 });
+
+
+/**
+ * This tests the srv github endpoint.
+ * @todo Check for log close on exit
+ */
+describe('srv github/', () => {
+   var scope;  // Our server mock
+   var clock;  // Our clock mock for replicable JWT
+
+   beforeEach(function() {
+      // https://runkit.com/gr2m/reproducable-jwt
+      clock = sinon.useFakeTimers({
+         now: 0,
+         toFake: ['Date']
+      });
+      // Mock for App.installationAccessToken
+      scope = nock('https://api.github.com', {
+         reqheaders: {
+            accept: 'application/vnd.github.machine-man-preview+json',
+         }
+      });
+   });
+
+   it('expect skipped', (done) => {
+      scope.get(`/repos/${process.env.REPO_OWNER}/${process.env.REPO_NAME}/installation`).reply(200);
+      scope.post(`/app/installations/${APP_ID}/access_tokens`).reply(200);
+
+      request(srv)
+         .post(`/github`)  // trailing slash essential
+         .set({'X-GitHub-Event': 'issues'})
+         .end(function (err, res) {
+            expect(scope.isDone()).not.true;
+            err ? done(err) : done();
+         });
+   });
+
+   it('expect error caught', () => {
+      scope.get(`/repos/${process.env.REPO_OWNER}/${process.env.REPO_NAME}/installation`)
+           .reply(201, {id: APP_ID});
+      scope.post(`/app/installations/${APP_ID}/access_tokens`)
+           .reply(201, {
+              token: '#t0k3N',
+              permissions: {
+                 checks: "write",
+                 metadata: "read",
+                 contents: "read"
+              },
+           });
+
+      request(srv)
+         .post(`/github`)  // trailing slash essential
+         .set({
+            'X-GitHub-Event': 'issues',
+            'x-github-hook-installation-target-id': process.env.GITHUB_APP_IDENTIFIER,
+            'X-Hub-Signature': {'sha': null},
+            'X-GitHub-Delivery': '72d3162e-cc78-11e3-81ab-4c9367dc0958'
+         })
+         .end(function (err) {
+            expect(err).is.null;  // Should have caught error
+         });
+   });
+
+});

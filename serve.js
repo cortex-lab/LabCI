@@ -101,6 +101,13 @@ srv.post('/github', async (req, res, next) => {
    handler(req, res, () => res.end('ok'));
 });
 
+/**
+ * Register invalid Github POST requests to handler via /github endpoint.
+ * Failed spoof attempts may end up here but most likely it will be unsupported webhook events.
+ */
+handler.on('error', function (err) {
+  console.log('Error:', err.message);
+});
 
 ///////////////////// STATUS DETAILS /////////////////////
 
