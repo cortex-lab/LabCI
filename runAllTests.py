@@ -22,7 +22,7 @@ from ibllib.misc.version import ibllib as ver
 logger = logging.getLogger('ibllib')
 
 try:  # Import the test packages
-    import brainbox.tests, ci.tests, ibllib, ibllib_tests
+    import brainbox.tests, ci.tests, ibllib.tests, alf.tests, oneibl.tests
 except ModuleNotFoundError as ex:
     logger.warning(f'Failed to import test packages: {ex} encountered')
 
@@ -37,7 +37,7 @@ def list_tests(suite: Union[List, unittest.TestSuite, unittest.TestCase]) -> Uni
         return flatten([list_tests(x) for x in suite])
     elif not unittest.suite._isnotsuite(suite):
         return list_tests(suite._tests)
-    else:
+    elif isinstance(suite, (unittest.TestSuite, unittest.TestCase)):
         return f'{suite.__class__.__name__}/{suite._testMethodName}'
 
 
@@ -47,7 +47,7 @@ def generate_coverage_report(cov, save_path, strict=False, relative_to=None):
     :param cov: A Coverage object
     :param save_path: Where to save the coverage files
     :param strict: If True, asserts that the coverage report was created
-    :param relative_to: coverage.misc.CoverageException
+    :param relative_to: The root folder for the functions coverage
     :return:
     """
     try:
@@ -75,14 +75,11 @@ def generate_coverage_report(cov, save_path, strict=False, relative_to=None):
     return total
 
 
-def run_tests(coverage_source: Iterable = None,
-              complete: bool = True,
+def run_tests(complete: bool = True,
               strict: bool = True,
               dry_run: bool = False) -> (unittest.TestResult, Coverage, unittest.TestSuite):
     """
     Run integration tests
-    :param coverage_source: An iterable of source directory path strings for recording code
-    coverage.
     :param complete: When true ibllib unit tests are run in addition to the integration tests.
     :param strict: When true asserts that all gathered tests were successfully imported.  This
     means that a module not found error in any test module will raise an exception.
@@ -91,7 +88,7 @@ def run_tests(coverage_source: Iterable = None,
     """
     # Coverage recorded for all code within the source directory; otherwise just omit some
     # common pyCharm files
-    options = {'omit': ['*pydevd_file_utils.py', 'test_*'], 'source': coverage_source}
+    options = {'omit': ['*pydevd_file_utils.py', 'test_*'], 'source': []}
 
     # Gather tests
     test_dir = str(Path(ci.tests.__file__).parent)
@@ -99,13 +96,16 @@ def run_tests(coverage_source: Iterable = None,
     ci_tests = unittest.TestLoader().discover(test_dir, pattern='test_*')
     if complete:  # include ibllib and brainbox unit tests
         root = Path(ibllib.__file__).parents[1]  # Search relative to our imported ibllib package
-        test_dirs = [root.joinpath(x) for x in ('tests_ibllib', 'brainbox')]
-        logger.info('Loading unit tests from folders: \n\t' + "\n\t".join(map(str, test_dirs)))
-        assert not strict or all(x.exists() for x in test_dirs), 'Failed to find unit test folders'
-        unit_tests = [unittest.TestLoader().discover(str(x), pattern='test_*') for x in test_dirs]
-        # Merge all tests
-        ci_tests = unittest.TestSuite((ci_tests, *unit_tests))
-
+        test_dirs = [root.joinpath(x) for x in ('brainbox', 'oneibl', 'ibllib', 'alf')]
+        for tdir in test_dirs:
+            logger.info(f'Loading unit tests from folders: {tdir}')
+            assert tdir.exists(), f'Failed to find unit test folders in {tdir}'
+            unit_tests = unittest.TestLoader().discover(str(tdir), pattern='test_*', top_level_dir=root)
+            logger.info(f"Found {unit_tests.countTestCases()}, appending to the test suite")
+            ci_tests = unittest.TestSuite((ci_tests, *unit_tests))
+            # for coverage, append the path of the test modules to the source key
+            options['source'].append(str(tdir))
+    logger.info(f'Complete suite contains {ci_tests.countTestCases()} tests')
     # Check all tests loaded successfully
     not_loaded = [x[12:] for x in list_tests(ci_tests) if x.startswith('_Failed')]
     if len(not_loaded) != 0:
@@ -158,22 +158,23 @@ if __name__ == "__main__":
     report_dir = Path(args.logdir).joinpath('reports', args.commit)
     # Create the reports tree if it doesn't already exist
     report_dir.mkdir(parents=True, exist_ok=True)
-    logfile = report_dir / 'test_output.log'
     db_file = Path(args.logdir, '.db.json')
 
     # Setup backup log (NB: the system output is also saved by the ci)
+    logfile = report_dir / 'test_output.log'
     fh = RotatingFileHandler(logfile, maxBytes=(1048576 * 5))
     logger.addHandler(fh)
     logger.setLevel(logging.INFO)
 
     # Tests
     logger.info(Path(args.repo).joinpath('*'))
-    result, cov, test_list = run_tests(coverage_source=[str(args.repo)], dry_run=args.dry_run)
+    result, cov, test_list = run_tests(dry_run=args.dry_run)
 
     # Generate report
     logger.info('Saving coverage report to %s', report_dir)
-    total = generate_coverage_report(cov, report_dir,
-                                     relative_to=repo_dir, strict=not args.dry_run)
+
+    total = generate_coverage_report(cov, report_dir, relative_to=Path(ibllib.__file__).parent,
+                                     strict=not args.dry_run)
 
     # When running tests without a specific commit, exit without saving the result
     if args.commit is parser.get_default('commit'):
@@ -188,8 +189,11 @@ if __name__ == "__main__":
     # Save all test names if all passed, otherwise save those that failed and their error stack
     if n_failed > 0:
         details = [(list_tests(c), err) for c, err in result.failures + result.errors]
+        logger.warning('Tests failing...')
     else:
         details = list_tests(test_list)
+        logger.info('All tests pass...')
+    print(*details, sep='\n')  # Print all tests for the log
 
     report = {
         'commit': args.commit + ('_dry-run' if args.dry_run else ''),

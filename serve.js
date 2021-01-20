@@ -98,6 +98,7 @@ srv.post('/github', async (req, res, next) => {
    let id = req.header('x-github-hook-installation-target-id');
    if (id != process.env.GITHUB_APP_IDENTIFIER) { next(); return; }  // Not for us; move on
    await setAccessToken();
+   log.extend('event')('X-GitHub-Event: %s', req.header('X-GitHub-Event'));
    handler(req, res, () => res.end('ok'));
 });
 
@@ -108,6 +109,7 @@ srv.post('/github', async (req, res, next) => {
 handler.on('error', function (err) {
   console.log('Error:', err.message);
 });
+
 
 ///////////////////// STATUS DETAILS /////////////////////
 
@@ -126,8 +128,13 @@ srv.use(`/${ENDPOINT}/coverage`, express.static(path.join(config.dataPath, 'repo
 srv.get(`/${ENDPOINT}/:id`, function (req, res) {
    let id = lib.shortID(req.params.id);
    let isSHA = lib.isSHA(req.params.id);
-   console.log('Request for test log for ' + (isSHA? `commit ${id}` : `branch ${req.params.id}`));
-   let logFile = path.join(config.dataPath, 'reports', req.params.id, `std_output-${id}.log`)
+   let log_only = (req.query.type || '').startsWith('log')
+   console.log(
+      `Request for test ${log_only ? 'log' : 'stdout'} for ` +
+      (isSHA? `commit ${id}` : `branch ${req.params.id}`)
+   );
+   let filename = log_only? `test_output.log` : `std_output-${id}.log`;
+   let logFile = path.join(config.dataPath, 'reports', req.params.id, filename);
    fs.readFile(logFile, 'utf8', (err, data) => {
       if (err) {
          log('%s', err.message);
@@ -142,7 +149,6 @@ srv.get(`/${ENDPOINT}/:id`, function (req, res) {
       }
    });
 });
-
 
 
 ///////////////////// SHIELDS API EVENTS /////////////////////
@@ -163,7 +169,7 @@ srv.get('/:badge/:repo/:branch', async (req, res) => {
          data['context'] = req.params.badge;
          data['sha'] = response.data.object.sha;
          console.log(`Request for ${data.branch} ${data.context}`)
-         const report = lib.getBadgeData(data);
+         const report = lib.getBadgeData(data);  // TODO If pending return 201, else 200
          // Send report
          res.setHeader('Content-Type', 'application/json');
          res.end(JSON.stringify(report));})
