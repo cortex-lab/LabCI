@@ -161,13 +161,14 @@ srv.get('/:badge/:repo/:branch', async (req, res) => {
    const data = {
       owner: process.env['REPO_OWNER'],
       repo: req.params.repo,
-      branch: req.params.branch
+      branch: req.params.branch,
    }
    // Find head commit of branch
    return request('GET /repos/:owner/:repo/git/refs/heads/:branch', data)
       .then(response => {
          data['context'] = req.params.badge;
          data['sha'] = response.data.object.sha;
+         data['force'] = req.query.force === '' || lib.strToBool(req.query.force);
          console.log(`Request for ${data.branch} ${data.context}`)
          const report = lib.getBadgeData(data);  // TODO If pending return 201, else 200
          // Send report

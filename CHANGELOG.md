@@ -8,6 +8,8 @@
  - support for running any tests: now CI calls a custom shell script
  - new settings file and config module to validate settings
  - branch pass list option in settings
+ - force flag for badge API
+ - function for converting string to bool in robust way
 
  
 ### Modified

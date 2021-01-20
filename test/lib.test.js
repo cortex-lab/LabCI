@@ -28,6 +28,22 @@ describe('Test ensureArray:', function() {
 
 
 /**
+ * This tests the shields callback which returns sheilds.io API data for coverage and build status.
+ */
+describe("strToBool function", () => {
+   it('Check valid true', () => {
+       strings = ['on', 'true', 'True', '1', 'ON'];
+       strings.forEach((x) => { expect(lib.strToBool(x)).true; });
+   });
+
+   it('Check valid false', () => {
+       strings = ['', null, undefined, '0', 'false'];
+       strings.forEach((x) => { expect(lib.strToBool(x)).false; });
+   });
+});
+
+
+/**
  * A test for the function partial.  Should curry function input.
  */
 describe('Test partial:', function() {
@@ -235,6 +251,21 @@ describe("getBadgeData function", () => {
       input['sha'] = ids[2];
       expected['message'] = 'pending';
       expected['color'] = 'orange';
+      data = lib.getBadgeData(input);
+      expect(data).to.deep.equal(expected);
+      sandbox.assert.calledOnce(queue.add);
+   });
+
+   it('Check force flag', function () {
+      input['sha'] = ids[1];
+      input['context'] = 'status';
+      input['force'] = true;  // set force flag to true
+      const expected = {
+         schemaVersion: 1,
+         label: 'build',
+         message: 'pending',
+         color: 'orange'
+      };
       data = lib.getBadgeData(input);
       expect(data).to.deep.equal(expected);
       sandbox.assert.calledOnce(queue.add);

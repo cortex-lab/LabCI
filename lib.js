@@ -63,6 +63,17 @@ function fullpath(p) {
  */
 function ensureArray(x) { return (Array.isArray(x))? x : [x]; }
 
+/**
+ * Will match one and only one of the string 'true','1', or 'on' regardless of capitalization and
+ * regardless of surrounding white-space.
+ * @param s
+ * @returns {boolean}
+ */
+function strToBool(s) {
+    regex = /^\s*(true|1|on)\s*$/i;
+    return regex.test(s);
+}
+
 
 /**
  * Load test results from .db.json file.  NB: Size and order of returned records not guaranteed
@@ -374,7 +385,7 @@ function getBadgeData(data) {
    }
    var report = {'schemaVersion': 1, 'label': data.context === 'status'? 'build' : 'coverage'};
    // Try to load coverage record
-   let record = loadTestRecords(id);
+   let record = data.force? [] : loadTestRecords(id);
    // If no record found
    if (record.length === 0) {
       report['message'] = 'pending';
@@ -426,5 +437,5 @@ class APIError extends Error {
 module.exports = {
    ensureArray, loadTestRecords, compareCoverage, computeCoverage, getBadgeData, log, shortID,
    openTunnel, APIError, queue, partial, startJobTimer, updateJobFromRecord, shortCircuit, isSHA,
-   fullpath
+   fullpath, strToBool
 }

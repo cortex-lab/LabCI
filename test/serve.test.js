@@ -10,6 +10,7 @@ const assert = require('chai').assert;
 const appAuth = require("@octokit/auth-app");
 
 const APIError = require('../lib').APIError;
+const lib = require('../lib');
 const { updateStatus, setAccessToken, eventCallback, srv, prepareEnv, runTests } = require('../serve');
 const queue = require('../lib').queue;
 const config = require('../config/config').settings;
@@ -297,6 +298,7 @@ describe('shields callback', () => {
    before(function () {
       scope = nock('https://api.github.com');
       queue.process(async (_job, _done) => {});  // nop
+      queue.pile = [];  // ensure queue is empty
       info = {
          repo: 'Hello-World',
          owner: 'Codertocat',
@@ -346,6 +348,35 @@ describe('shields callback', () => {
          });
    });
 
+   it('expect job forced', (done) => {
+      // Set up response to GitHub API query
+      // GET /repos/:owner/:repo/git/refs/heads/:branch
+      scope.get(`/repos/${info.owner}/${info.repo}/git/refs/heads/${info.branch}`)
+           .reply(200, {
+              ref: `ref/heads/${info.branch}`,
+              object: {
+                 sha: SHA
+              }
+           });
+
+      request(srv)
+         .get(`/coverage/${info.repo}/${info.branch}?force=1`)
+         .expect('Content-Type', 'application/json')
+         .expect(200)
+         .end(function (err, res) {
+            scope.isDone();
+            if (err) return done(err);
+            expect(res.body).deep.keys([
+               'schemaVersion',
+               'label',
+               'message',
+               'color'
+            ]);
+            expect(queue.pile.length).eq(1);
+            done();
+         });
+   });
+
 });
 
 
@@ -358,12 +389,14 @@ describe('logs endpoint', () => {
    var logData;  // The text in our log
 
    before(function () {
-      const logFile = path.join(config.dataPath, 'reports', SHA, `std_output-${SHA.substr(0,7)}.log`);
-      logData = 'hello world';
+      const log_path = path.join(config.dataPath, 'reports', SHA);
+      logData = ['hello world', 'foobar'];
       stub = sinon
          .stub(fs, 'readFile')
-         .withArgs(logFile, 'utf8')
-         .yieldsAsync(null, logData);
+         .withArgs(path.join(log_path, `std_output-${SHA.substr(0,7)}.log`), 'utf8')
+         .yieldsAsync(null, logData[0])
+         .withArgs(path.join(log_path, 'test_output.log'), 'utf8')
+         .yieldsAsync(null, logData[1]);
    });
 
    it('expect HTML log', (done) => {
@@ -372,7 +405,19 @@ describe('logs endpoint', () => {
          .expect(200)
          .end(function (err, res) {
             if (err) return done(err);
-            expect(res.text).contains(logData)
+            expect(res.text).contains(logData[0])
+            expect(res.text).to.match(/^<html.*>.+<\/html>$/)
+            done();
+         });
+   });
+
+   it('expect type param', (done) => {
+      request(srv)
+         .get(`/${ENDPOINT}/${SHA}?type=logger`)
+         .expect(200)
+         .end(function (err, res) {
+            if (err) return done(err);
+            expect(res.text).contains(logData[1])
             expect(res.text).to.match(/^<html.*>.+<\/html>$/)
             done();
          });
