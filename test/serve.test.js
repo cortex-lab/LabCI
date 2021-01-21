@@ -64,7 +64,7 @@ describe('setAccessToken', () => {
    });
 
    it('test install ID cached', (done) => {
-      // In this test we check that once the install ID is retrieved the app authentification is
+      // In this test we check that once the install ID is retrieved the app authentication is
       // skipped (only to re-auth as installation).
       scope.get(`/repos/${process.env.REPO_OWNER}/${process.env.REPO_NAME}/installation`)
            .matchHeader('authorization', `bearer ${token}`)
@@ -214,7 +214,28 @@ describe("Github event handler callback", () => {
    var evt;  // A payload event loaded from fixtures
    var sandbox;  // Sandbox for spying on queue
 
-   before(function () {
+   /**
+    * This fixture ensures the `token` variable is not null.
+    */
+   async function setToken() {
+      scope = nock('https://api.github.com');
+      scope.get(`/repos/${process.env.REPO_OWNER}/${process.env.REPO_NAME}/installation`)
+           .reply(201, {id: APP_ID});
+      scope.post(`/app/installations/${APP_ID}/access_tokens`)
+           .reply(201, {
+              token: '#t0k3N',
+              permissions: {
+                 checks: "write",
+                 metadata: "read",
+                 contents: "read"
+              },
+           });
+      await setAccessToken();
+      scope.done();
+   }
+
+   before(function (done) {
+      setToken().then(() => done());
       scope = nock('https://api.github.com', {
          reqheaders: {
             accept: 'application/vnd.github.machine-man-preview+json',
@@ -491,6 +512,7 @@ describe('running tests', () => {
       sandbox = sinon.createSandbox()
       stub = sandbox.stub(cp, 'execFile');
       sandbox.stub(fs, 'createWriteStream');
+      sandbox.stub(fs, 'mkdir').callsArg(2);
       execEvent = new events.EventEmitter();
       execEvent.stdout = new events.EventEmitter();
       execEvent.stdout.pipe = sandbox.spy();
@@ -499,19 +521,19 @@ describe('running tests', () => {
 
    it('test prepareEnv', async () => {
       const callback = sandbox.spy();
-      stub.callsArgAsync(2, null, 'preparing', '');
+      stub.callsArgAsync(3, null, 'preparing', '');
       const job = {data: {sha: SHA}};
       await prepareEnv(job, callback);
       let log = path.join(config.dataPath, 'reports', SHA, 'std_output-cabe27e.log');
       let fn = path.resolve(path.join(__dirname, '..', 'prep_env.BAT'));
       stub.calledWith(fn, [SHA, config.repo, config.dataPath]);
-      sandbox.assert.calledWith(fs.createWriteStream, log);
       expect(callback.calledOnce).true;
       expect(callback.calledOnceWithExactly(job)).true;
+      sandbox.assert.calledWith(fs.createWriteStream, log);
    });
 
    it('test prepareEnv with error', async (done) => {
-      stub.callsArgWith(2, {code: 'ENOENT'}, 'preparing', '');
+      stub.callsArgWith(3, {code: 'ENOENT'}, 'preparing', '');
       const job = {
          data: {sha: SHA},
          done: (err) => {
@@ -523,10 +545,9 @@ describe('running tests', () => {
       prepareEnv(job);
    });
 
-
    it('test runtests', async () => {
       const callback = sandbox.spy();
-      stub.callsArgWith(2, null, 'running tests', '');
+      stub.callsArgWith(3, null, 'running tests', '');
       const job = {
          data: {sha: SHA},
          done: callback
@@ -542,7 +563,8 @@ describe('running tests', () => {
 
    it('runtests parses MATLAB error', async (done) => {
       const errmsg = 'Error in MATLAB_function line 23';
-      stub.callsArgWith(2, {code: 1}, 'running tests', errmsg);
+      stub.callsArgWith(3, {code: 1}, 'running tests', errmsg);
+      sandbox.stub(fs.promises, 'writeFile');  // For safety
       const job = {
          data: {sha: SHA},
          done: (err) => {
@@ -555,7 +577,8 @@ describe('running tests', () => {
    });
 
    it('runtests parses Python error', async (done) => {
-      stub.callsArgWith(2, {code: 1}, 'running tests', stdErr);
+      stub.callsArgWith(3, {code: 1}, 'running tests', stdErr);
+      sandbox.stub(fs.promises, 'writeFile');  // For safety
       const job = {
          data: {sha: SHA},
          done: (err) => {
@@ -566,6 +589,20 @@ describe('running tests', () => {
          }
       };
       runTests(job);
+   });
+
+   it('runtests saves error record', (done) => {
+      // We don't wait for the file to be written so let's inject the done callback into the
+      // writeFile method.
+      sandbox.stub(fs.promises, 'writeFile').callsFake(() => {
+         sandbox.assert.calledWith(fs.promises.writeFile, config.dbFile);
+         done();
+      });
+      stub.callsArgWith(3, {code: 1}, 'running tests', stdErr);
+      runTests({
+         data: {sha: SHA},
+         done: () => {}
+      });
    });
 
    afterEach(function () {

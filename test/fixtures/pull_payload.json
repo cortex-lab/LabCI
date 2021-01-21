@@ -452,6 +452,6 @@
     "site_admin": false
   },
   "installation": {
-    "id": "123"
+    "id": 123
   }
 }

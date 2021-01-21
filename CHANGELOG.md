@@ -10,6 +10,7 @@
  - branch pass list option in settings
  - force flag for badge API
  - function for converting string to bool in robust way
+ - function for saving test records
 
  
 ### Modified
@@ -17,6 +18,7 @@
  - complete rewrite of code
  - index.js renamed to main.js
  - preparing the environment may be optional
+ - errors during test function are now saved into test record db
  
    
 ## [1.2.0]

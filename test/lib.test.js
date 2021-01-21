@@ -1,3 +1,5 @@
+const fs = require('fs');
+
 const config = require('../config/config').settings
 const assert = require('assert')
 const sinon = require('sinon');
@@ -149,6 +151,63 @@ describe('Test loading test records:', function() {
         let isEmptyArr = x => { return Array.isArray(x) && x.length === 0; }
         assert(isEmptyArr(record))
         assert(isEmptyArr(lib.loadTestRecords([id, id])))
+    });
+});
+
+
+/**
+ * A test for the function saveTestRecords.
+ */
+describe('Test saving test records:', function() {
+    var backup;
+
+    // Check NODE_ENV is correctly set, meaning our imported settings will be test ones
+    before(function () {
+        assert(process.env.NODE_ENV.startsWith('test'), 'Test run outside test env')
+        backup = config.dbFile + Date.now();
+        fs.copyFileSync(config.dbFile, backup);
+    });
+
+    it('Check saving existing record', async function () {
+        const record = lib.loadTestRecords(ids[0]);
+        delete record['results'];  // remove a field
+        record['status'] = 'passed';  // change a field
+        await lib.saveTestRecords(record);
+        const new_record = lib.loadTestRecords(record['commit']);
+        assert.strictEqual(new_record.status, record.status, 'failed to update record');
+        assert(new_record.results !== undefined);
+    });
+
+    it('Check saving new records', async function () {
+        const records = [
+           lib.loadTestRecords(ids[1]),
+           {
+            'commit': ids[1].replace('2', '3'), // not in db
+            'status': 'error',
+           }
+        ];
+        records[0]['status'] = 'error';  // change a field
+        await lib.saveTestRecords(records);
+        const new_records = lib.loadTestRecords(records.map(x => x.commit));
+        assert(new_records.length === 2);
+        for (o of new_records) {
+           assert.strictEqual(o.status, 'error', 'failed to update all records');
+        }
+    });
+
+    it('Check validation errors', function (done) {
+        const record = {
+           commit: ids[2],
+           status: 'success'
+        };
+        lib.saveTestRecords(record).catch(err => {
+           expect(err).instanceOf(lib.APIError);
+           done();
+        });
+    });
+
+    after(function () {
+        fs.renameSync(backup, config.dbFile);
     });
 });
 

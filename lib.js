@@ -65,14 +65,11 @@ function ensureArray(x) { return (Array.isArray(x))? x : [x]; }
 
 /**
  * Will match one and only one of the string 'true','1', or 'on' regardless of capitalization and
- * regardless of surrounding white-space.
- * @param s
- * @returns {boolean}
+ * regardless of surrounding white-space.  (Thx to shrewmouse).
+ * @param {string} s - String to test
+ * @returns {boolean} s as bool
  */
-function strToBool(s) {
-    regex = /^\s*(true|1|on)\s*$/i;
-    return regex.test(s);
-}
+function strToBool(s) { return /^\s*(true|1|on)\s*$/i.test(s); }
 
 
 /**
@@ -98,37 +95,39 @@ function loadTestRecords(id) {
 /**
  * Save test results from .db.json file.  Any matching records are merged before saving.
  * @param {Object, Array} r - The record(s) to save.  Must contain an id field.
- * @todo WIP
  */
-function saveTestRecords(r) {
+async function saveTestRecords(r) {
+   var obj;  // the test records
    const byID = (a, b) => b.commit.localeCompare(a.commit);
    r = ensureArray(r).sort(byID);
-   if (!r.every(x => 'commit' in x)) {
-      throw new APIError('"commit" not in record(s)')
+   if (!r.every(x => isSHA(x.commit))) {
+      throw new APIError('"commit" not in record(s)');
    }
-   return fs.readFile(config.dbFile, 'utf8', function(err, data) {
-      var obj;
+   try {
+      let data = await fs.promises.readFile(config.dbFile, 'utf8')
+      obj = ensureArray(JSON.parse(data));
+      let ids = r.map(x => x.commit);
+      let records = obj.filter(o => ids.indexOf(o.commit) >= 0);
+      // Update existing records
+      for (let old of records) {
+         let o = r.filter(x => x.commit === old.commit );
+         if (o.length > 0) {
+            Object.assign(old, o.pop());
+         }
+      }
+      let updated = records.map(x => x.commit);
+      r = r.filter(x => updated.indexOf(x.commit) === -1);
+   } catch (err) {
       if (err && err.code === 'ENOENT') {
          console.log(`Records file not found at ${config.dbFile}`);
          obj = [];
       } else {
-         obj = ensureArray(JSON.parse(data));
-         let ids = r.map(x => x.commit);
-         let records = obj.filter(o => ids.indexOf(o.commit) >= 0);
-         // Update existing records
-         for (let old of records) {
-            let o = r.filter(x => x.id === old.commit);
-            if (o.length > 0) {
-               Object.assign(old, o.pop());
-            }
-         }
-         let updated = records.map(x => x.commit);
-         r = r.filter(x => updated.indexOf(x.commit) === -1);
+         throw err;
       }
-      // Add new records
-      obj = obj.concat(r);
-      return fs.writeFile(config.dbFile, JSON.stringify(obj));
-   })
+   }
+   // Add new records
+   obj = obj.concat(r);
+   await fs.promises.writeFile(config.dbFile, JSON.stringify(obj));
 }
 
 
@@ -437,5 +436,5 @@ class APIError extends Error {
 module.exports = {
    ensureArray, loadTestRecords, compareCoverage, computeCoverage, getBadgeData, log, shortID,
    openTunnel, APIError, queue, partial, startJobTimer, updateJobFromRecord, shortCircuit, isSHA,
-   fullpath, strToBool
+   fullpath, strToBool, saveTestRecords
 }

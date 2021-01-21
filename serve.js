@@ -217,6 +217,14 @@ function runTests(job) {
             }
             if (!message) { message = error.code; }
          }
+         // Save error into records for future reference.  NB: This is currently not done for prepEnv errors
+         let report = {
+            'commit': sha,
+            'results': message,
+            'status': 'error',
+            'description': 'Error running ' + (config.test_function || 'test function')
+         };
+         lib.saveTestRecords(report).then(() => { debug('updated test records'); });
          job.done(new Error(message));  // Propagate
       } else {
          if (!lib.updateJobFromRecord(job)) {

@@ -189,10 +189,10 @@ if __name__ == "__main__":
     # Save all test names if all passed, otherwise save those that failed and their error stack
     if n_failed > 0:
         details = [(list_tests(c), err) for c, err in result.failures + result.errors]
-        logger.warning('Tests failing...')
+        logger.warning(description)
     else:
         details = list_tests(test_list)
-        logger.info('All tests pass...')
+        logger.info(description)
     print(*details, sep='\n')  # Print all tests for the log
 
     report = {
