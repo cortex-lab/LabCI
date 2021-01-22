@@ -568,12 +568,13 @@ describe('records endpoint', () => {
  */
 describe('coverage endpoint', () => {
 
-   before(function() {
+   before(function(done) {
       let reportsDir = path.join(config.dataPath, 'reports', SHA);
-      fs.mkdir(reportsDir, { recursive: true }, (err) => {
+      fs.mkdir(reportsDir, { recursive: true }, async (err) => {
          if (err) throw err;
-         fs.writeFile(path.join(reportsDir, 'foobar.log'), '', (err) => { if (err) throw err; })
-         fs.writeFile(path.join(reportsDir, 'index.html'), '', (err) => { if (err) throw err; })
+         await fs.writeFile(path.join(reportsDir, 'foobar.log'), '', (err) => { if (err) throw err; })
+         await fs.writeFile(path.join(reportsDir, 'index.html'), '', (err) => { if (err) throw err; })
+         done()
       });
    })
 
@@ -581,12 +582,12 @@ describe('coverage endpoint', () => {
       request(srv)
          .get(`/${ENDPOINT}/coverage/`)  // trailing slash essential
          .expect(404)
-         .end(function (err, res) {
+         .end(err => {
             err? done(err) : done();
          });
    });
 
-   it('expect dir served found', (done) => {
+   it('expect dir to be served', (done) => {
       request(srv)
          .get(`/${ENDPOINT}/coverage/${SHA}/`)  // trailing slash essential
          .expect(200)
