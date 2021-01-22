@@ -1,6 +1,11 @@
 # MATLAB-ci
+[![Build Status](https://travis-ci.com/cortex-lab/matlab-ci.svg?branch=master)](https://travis-ci.com/cortex-lab/matlab-ci)
 
 A small set of modules written in Node.js for running automated tests of MATLAB code in response to GitHub events.  Also submits code coverage to the Coveralls API.
+
+Currently unsupported:
+* Running tests on forked repositories
+* Testing multiple repos (unless they are submodules) 
 
 ## Getting Started
 
@@ -8,24 +13,61 @@ Run the install script to install all dependencies, then create your .env file c
 
 ### Prerequisites
 
-Requires MATLAB 2017a or later, Node.js and Git Bash.  The following Node.js modules are required:
+Requires Git Bash, npm v6.14 or later and Node.js v12.19.0 or later.  For MATLAB tests use MATLAB 2017a or later.
 
 ```
-npm install --save express dotenv @octokit/app @octokit/request ...
-github-webhook-handler xml2js localtunnel
+npm install ./matlab-ci
 ```
 
 ### Installing
 
-Make sure runAllTests.m is on your MATLAB paths
+Create a shell/batch script for preparing your environment, and one for running the tests (i.e. calling Python or MATLAB).
+Add these to the settings.json file in config:
+```
+{
+  "setup_function": "./prep_env.BAT",
+  "test_function": "./run_tests.BAT",
+  "listen_port": 3000,
+  "timeout": 480000,
+  "program": "python",
+  "strict_coverage": false,
+  "events": {
+    "push": {
+      "checks": null,
+      "ref_ignore": ["documentation", "gh-pages"]
+    },
+    "pull_request": {
+      "checks": ["continuous-integration", "coverage"],
+      "actions": ["opened", "synchronize", "reopened"],
+      "ref_ignore": ["documentation", "gh-pages"]
+    }
+  }
+}
+``` 
+Some extra optional settings:
+
+- `shell` - optional shell to use when calling scripts (see `child_process.execFile` options).
+- `events:event:ref_include` - same as `ref_ignore`, but a pass list instead of block list.
+- `kill_children` - if present and true, `tree-kill` is used to kill the child processes, required 
+if shell/batch script forks test process (e.g. a batch script calls python).
+
+Finally, ensure these scripts are executable by node:
+```
+chmod u+x ./run_tests.BAT
+chmod u+x ./prep_env.BAT
+```
 
 ## Running the tests
 
-TODO
+```
+mocha ./test
+```
 
 ## Deployment
 
-To work properly you need to create install a Github app on your target repository and download the private key.  Update your .env file like so:
+To work properly you need to create install a 
+[Github app](https://docs.github.com/en/free-pro-team@latest/developers/apps/creating-a-github-app)
+on your target repository and download the private key.  Update your .env file like so:
 
 ```
 GITHUB_PRIVATE_KEY=path\to\private-key.pem
@@ -42,10 +84,16 @@ TUNNEL_SUBDOMAIN=
 To run at startup create a batch file with the following command:
 
 ```batch
-cmd /k node -r dotenv/config dotenv_config_path=/Path/To/Env/Vars ./Path/To/index.js 
+cmd /k node -r dotenv/config dotenv_config_path=/Path/To/Env/Vars ./Path/To/main.js 
 ```
 
 Create a shortcut in your startup folder ([Windows-logo] + [R] in Windows-10 and enter the command `shell:startup`)
+
+## Test script
+Your test script must do the following:
+1. Accept a commit ID as an input arg
+2. Save the results into the JSON cache file without duplication
+3. For code coverage the script must either save the coverage directly, or export a Cobertura formatted XML file.
 
 ## Built With
 

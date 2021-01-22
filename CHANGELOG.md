@@ -1,7 +1,29 @@
 # Changelog
 
-## [Latest](https://github.com/cortex-lab/matlab-ci/commits/master) [1.2.0]
+## [Latest](https://github.com/cortex-lab/matlab-ci/commits/master) [2.0.0]
+### Added
 
+ - there are now three major modules: lib, serve and main
+ - lots and lots of new tests
+ - support for running any tests: now CI calls a custom shell script
+ - new settings file and config module to validate settings
+ - branch pass list option in settings
+ - force flag for badge API
+ - function for converting string to bool in robust way
+ - function for saving test records
+
+ 
+### Modified
+ 
+ - complete rewrite of code
+ - index.js renamed to main.js
+ - preparing the environment may be optional
+ - errors during test function are now saved into test record db
+ - new config options (see readme)
+ - kill child processes in job timer
+ 
+   
+## [1.2.0]
 ### Modified
 
 - test log formatted in html
@@ -23,11 +45,7 @@
 - suppress warnings about shadowing builtins in runAllTests
 - run tests in subfolders
 - filter out performance tests
-<<<<<<< HEAD
-- skip tests for commits to branches named 'documentation'
-=======
 - skip checks for commits to branches named 'documentation'
->>>>>>> master
 
 ## [1.0.0]
 ### Added

@@ -1,4 +1,5 @@
 var EventEmitter = require('events').EventEmitter
+const assert = require('assert')
 
 /**
  * Queue module allows one to add tasks to a queue which are processed sequentially as FILO.
@@ -19,22 +20,22 @@ var EventEmitter = require('events').EventEmitter
 
 /** Class representing a Queue API. */
 class Queue extends EventEmitter {
-
+  pile = [];
   /**
    * Create queue to add jobs to.
    * @param {string} path - Path to saved queue object (TODO).
-   * @param {Array} pile - Array of queued job objects.
-   * @param (Function) _process - Handle to job process function.
+   * @property {Array} pile - Array of queued job objects.
+   * @property (Function) _process - Handle to job process function.
    * @event module:Queue~finish
    * @event module:Queue~error
    * @event module:Queue~complete
    * @listens module:Queue~event:finish
    * @see {@link Job}
    */
+
   constructor(timeout, path) {
     super();
     // Initialize properties
-    this.pile = [];
     this.path = typeof path == 'undefined' ? './queue.json' : path;  //TODO Implement
     this.on('finish', function () { // Each time a job finishes...
       this.pile.shift(); // take off pile
@@ -46,7 +47,10 @@ class Queue extends EventEmitter {
    * @param {Object} data - Data object to be stored in {@link Job}.
    */
   add(data) {
-    var id = this.pile.length + 1; // generate job id
+    // generate 16 digit job id
+    let d = Date.now().toString()
+    let r = Math.floor(Math.random() * 1000).toString()
+    let id = Number((r + d).padEnd(16, '0'))
     this.pile.push(new Job(id, data)); // add to bottom of pile
     console.log('Job added (' + this.pile.length + ' on pile)')
     this.next(); // Start next job if idle
@@ -65,7 +69,6 @@ class Queue extends EventEmitter {
   /**
    * Create callback to be triggered when process function completes.
    * @param {Object} job - {@link Job} object.
-   * @todo Change 'incomplete' => 'error'
    * @returns {function} 'done' callback to be called by process function
    */
   createDoneCallback(job) {
@@ -73,8 +76,8 @@ class Queue extends EventEmitter {
     return function( err ) {
       job.isRunning = false; // set false (will emit 'end')
       if( err ) { obj.emit('error', err, job); }
-      else {obj.emit('complete', job)}
-      obj.emit('finish', job);
+      else { obj.emit('complete', job) }
+      obj.emit('finish', err, job);
       }
 
   }
@@ -82,12 +85,13 @@ class Queue extends EventEmitter {
   /**
    * Create callback to be triggered when process function completes.
    * @param {Function} func - Function to call with job and done callback when.
+   * @todo make done callback part of job obj?
    */
   process(func) {
     this._process = async (job) => {
-      var done = this.createDoneCallback(job);
+      job.done = this.createDoneCallback(job);
       job.isRunning = true;
-      setImmediate(func, job, done);
+      setImmediate(func, job, job.done);
       console.log('Job running')
     };
   }
@@ -95,7 +99,9 @@ class Queue extends EventEmitter {
 
 /** Class representing a job in the Queue. */
 class Job extends EventEmitter {
-
+  id;
+  data;
+  running;
   /**
    * Create a job object with associated data.
    * @param {number} id - Job ID (unique in current Queue pile).
