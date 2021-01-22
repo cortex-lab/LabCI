@@ -46,14 +46,14 @@ describe('setAccessToken', () => {
 
    before(function () {
       expiry.setTime(expiry.getTime() + 60e3);  // 60s in the future
-   });
-
-   beforeEach(function() {
       // https://runkit.com/gr2m/reproducable-jwt
       clock = sinon.useFakeTimers({
          now: 0,
          toFake: ['Date']
       });
+   });
+
+   beforeEach(function() {
       // Mock for App.installationAccessToken
       scope = nock('https://api.github.com', {
          reqheaders: {
@@ -133,11 +133,8 @@ describe('setAccessToken', () => {
       });
    });
 
-   afterEach(function() {
-      clock.restore();
-   });
-
    after(async function() {
+      clock.restore();
       await resetToken();
    })
 });
@@ -571,12 +568,13 @@ describe('records endpoint', () => {
  */
 describe('coverage endpoint', () => {
 
-   before(function() {
+   before(function(done) {
       let reportsDir = path.join(config.dataPath, 'reports', SHA);
-      fs.mkdir(reportsDir, { recursive: true }, (err) => {
+      fs.mkdir(reportsDir, { recursive: true }, async (err) => {
          if (err) throw err;
-         fs.writeFile(path.join(reportsDir, 'foobar.log'), '', (err) => { if (err) throw err; })
-         fs.writeFile(path.join(reportsDir, 'index.html'), '', (err) => { if (err) throw err; })
+         await fs.writeFile(path.join(reportsDir, 'foobar.log'), '', (err) => { if (err) throw err; })
+         await fs.writeFile(path.join(reportsDir, 'index.html'), '', (err) => { if (err) throw err; })
+         done()
       });
    })
 
@@ -584,12 +582,12 @@ describe('coverage endpoint', () => {
       request(srv)
          .get(`/${ENDPOINT}/coverage/`)  // trailing slash essential
          .expect(404)
-         .end(function (err, res) {
+         .end(err => {
             err? done(err) : done();
          });
    });
 
-   it('expect dir served found', (done) => {
+   it('expect dir to be served', (done) => {
       request(srv)
          .get(`/${ENDPOINT}/coverage/${SHA}/`)  // trailing slash essential
          .expect(200)
@@ -718,12 +716,15 @@ describe('srv github/', () => {
    var scope;  // Our server mock
    var clock;  // Our clock mock for replicable JWT
 
-   beforeEach(function() {
+   before(function() {
       // https://runkit.com/gr2m/reproducable-jwt
       clock = sinon.useFakeTimers({
          now: 0,
          toFake: ['Date']
       });
+   });
+
+   beforeEach(function() {
       // Mock for App.installationAccessToken
       scope = nock('https://api.github.com', {
          reqheaders: {
@@ -769,6 +770,10 @@ describe('srv github/', () => {
          .end(function (err) {
             expect(err).is.null;  // Should have caught error
          });
+   });
+
+   after(function () {
+      clock.restore();
    });
 
 });

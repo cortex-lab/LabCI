@@ -1,0 +1,11 @@
+language: node_js
+node_js: 12
+env:
+  - NODE_ENV=test
+jobs:
+  include:
+    - os: windows
+      env: NODE_ENV=test DOTENV_CONFIG_PATH=.\\test\\fixtures\\.env.test
+    - os: linux
+      env: NODE_ENV=test DOTENV_CONFIG_PATH=./test/fixtures/.env.test
+

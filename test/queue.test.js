@@ -39,7 +39,7 @@ describe('Test Queue constructor:', function() {
         assert.strictEqual(this.Q.pile.length, 2, 'failed to add more than one job')
         let id = this.Q.pile[0].id
         let isInt16 = Number.isInteger(id) && id.toString().length === 16
-        assert(isInt16, 'unexpected id')
+        assert(isInt16, `unexpected id ${id}`)
 
         // Check the set is unique
         var ids = this.Q.pile.map((job) => { return job.id; })

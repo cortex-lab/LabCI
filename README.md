@@ -1,4 +1,5 @@
 # MATLAB-ci
+[![Build Status](https://travis-ci.com/cortex-lab/matlab-ci.svg?branch=master)](https://travis-ci.com/cortex-lab/matlab-ci)
 
 A small set of modules written in Node.js for running automated tests of MATLAB code in response to GitHub events.  Also submits code coverage to the Coveralls API.
 
