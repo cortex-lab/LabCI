@@ -1,4 +1,5 @@
 const fs = require('fs');
+const cp = require('child_process');
 
 const config = require('../config/config').settings
 const assert = require('assert')
@@ -96,28 +97,34 @@ describe('Test updateJobFromRecord:', function() {
  */
 describe('Test startJobTimer:', function() {
    var clock;
-   var killed;
-   var childProcess;
-   var err;
 
-    before(function () {
-        killed = false;
-        childProcess = {
-            kill: () => { killed = true; }
-        };
+    beforeEach(function () {
         clock = sinon.useFakeTimers();
-        err = null;
     });
 
-    it('expect process killed', function () {
-        const job = { data: {} };
-        lib.startJobTimer(job, childProcess, (e) => { err = e; });
-        expect(err).null;
+    it('expect process killed', function (done) {
+        const childProcess = {
+            kill: () => { done(); },
+            pid: 10108
+        };
+        const job = { data: {process: childProcess} };
+        lib.startJobTimer(job);
         // Skip to the end...
         clock.tick(config.timeout + 1);
-        expect(err).instanceOf(Error);
-        expect(killed).true;
     });
+
+    it('expect tree-killed', function (done) {
+        // Test tree-kill switch.  We can't stub function exports so we'll use a slow ping command
+        // and kill it.  Should be relatively consistent across platforms.
+        const cmd = 'ping 127.0.0.1 -n 6 > nul';
+        const childProcess = cp.exec(cmd, () => { done(); });
+        const job = { data: {process: childProcess} };
+        lib.startJobTimer(job, true);
+        // Skip to the end...
+        clock.tick(config.timeout + 1);
+    });
+
+    after(() => { clock.restore(); })
 });
 
 

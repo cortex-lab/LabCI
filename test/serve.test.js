@@ -27,6 +27,26 @@ const SHA = 'cabe27e5c8b8cb7cdc4e152f1cf013a89adc7a71'
 describe('setAccessToken', () => {
    var scope;  // Our server mock
    var clock;  // Our clock mock for replicable JWT
+   var expiry = new Date(); // Date of token expiry
+
+   /**
+   * This fixture injects the default null token via setAccessToken.
+   */
+   async function resetToken() {
+      const token_default = {'tokenType': null};
+      const now = new Date('3000-12-30');
+      const sandbox = sinon.createSandbox({
+         useFakeTimers: {
+           now: new Date(3000, 1, 1, 0, 0)
+       }})
+      sandbox.stub(appAuth, 'createAppAuth').returns(async () => token_default);
+      try { await setAccessToken(); } catch (_) {}
+      sandbox.restore();
+   }
+
+   before(function () {
+      expiry.setTime(expiry.getTime() + 60e3);  // 60s in the future
+   });
 
    beforeEach(function() {
       // https://runkit.com/gr2m/reproducable-jwt
@@ -74,7 +94,7 @@ describe('setAccessToken', () => {
            .matchHeader('authorization', `bearer ${token}`)
            .reply(201, {
               token: '#t0k3N',
-              expires_at: new Date('3000-12-30').toISOString(),
+              expires_at: expiry.toISOString(),  // expires in 60s
               permissions: {
                  checks: "write",
                  metadata: "read",
@@ -98,7 +118,7 @@ describe('setAccessToken', () => {
       scope.post(`/app/installations/${APP_ID}/access_tokens`)
            .reply(201, {
               token: '#t0k3N',
-              expires_at: new Date('3000-12-30').toISOString(),
+              expires_at: expiry.toISOString(),
               permissions: {
                  checks: "write",
                  metadata: "read",
@@ -113,9 +133,13 @@ describe('setAccessToken', () => {
       });
    });
 
-   after(function() {
+   afterEach(function() {
       clock.restore();
    });
+
+   after(async function() {
+      await resetToken();
+   })
 });
 
 
@@ -402,7 +426,7 @@ describe('shields callback', () => {
 
 
 /**
- * This tests the logs endpoint endpoint.  When provided a SHA it should read a log file and return
+ * This tests the logs endpoint.  When provided a SHA it should read a log file and return
  * it as HTML.
  */
 describe('logs endpoint', () => {
@@ -426,8 +450,8 @@ describe('logs endpoint', () => {
          .expect(200)
          .end(function (err, res) {
             if (err) return done(err);
-            expect(res.text).contains(logData[0])
-            expect(res.text).to.match(/^<html.*>.+<\/html>$/)
+            expect(res.text).contains(logData[0]);
+            expect(res.text).to.match(/^<html.*>.+<\/html>$/);
             done();
          });
    });
@@ -438,8 +462,8 @@ describe('logs endpoint', () => {
          .expect(200)
          .end(function (err, res) {
             if (err) return done(err);
-            expect(res.text).contains(logData[1])
-            expect(res.text).to.match(/^<html.*>.+<\/html>$/)
+            expect(res.text).contains(logData[1]);
+            expect(res.text).to.match(/^<html.*>.+<\/html>$/);
             done();
          });
    });
@@ -455,6 +479,100 @@ describe('logs endpoint', () => {
             done();
          });
    });
+});
+
+
+/**
+ * This tests the logs/records endpoint.  When provided a SHA it should return the corresponding
+ * JSON record.
+ */
+describe('records endpoint', () => {
+   var scope;  // Our server mock
+
+   before(function () {
+      scope = nock('https://api.github.com');
+   });
+
+   it('expect JSON log', (done) => {
+      scope.get(`/repos/${process.env.REPO_OWNER}/${process.env.REPO_NAME}/commits/${SHA}`)
+           .reply(200, {
+              object: {
+                 sha: SHA
+              }
+           });
+      // Check JSON record returned
+      request(srv)
+         .get(`/${ENDPOINT}/records/${SHA}`)
+         .expect(200)
+         .expect('Content-Type', 'application/json')
+         .end(function (err, res) {
+            if (err) return done(err);
+            const record = JSON.parse(res.text);
+            expect(record.commit).eq(SHA);
+            done();
+         });
+   });
+
+   it('expect works with short id', (done) => {
+      const id = SHA.slice(0, 7);
+      scope.get(`/repos/${process.env.REPO_OWNER}/${process.env.REPO_NAME}/commits/${id}`)
+           .reply(200, {
+              object: {
+                 sha: SHA
+              }
+           });
+      // Check JSON record returned
+      request(srv)
+         .get(`/${ENDPOINT}/records/${id}`)
+         .expect(200)
+         .expect('Content-Type', 'application/json')
+         .end(function (err, res) {
+            if (err) return done(err);
+            const record = JSON.parse(res.text);
+            expect(record.commit).eq(SHA);
+            done();
+         });
+   });
+
+   it('expect 404 on missing', (done) => {
+      const id = SHA.replace('2', '3');
+      scope.get(`/repos/${process.env.REPO_OWNER}/${process.env.REPO_NAME}/commits/${id}`)
+           .reply(404);
+      // Check JSON record returned
+      request(srv)
+         .get(`/${ENDPOINT}/records/${id}`)
+         .expect(404)
+         .end(function (err, res) {
+            if (err) return done(err);
+            expect(res.text).contains('not found');
+            done();
+         });
+   });
+
+   it('expect works with branch and module', (done) => {
+      const branch = 'develop';
+      const repo = 'foobar';
+      scope.get(`/repos/${process.env.REPO_OWNER}/${repo}/branches/${branch}`)
+           .reply(200, {
+              object: {
+                 commit: {
+                    sha: SHA
+                 }
+              }
+           });
+      // Check JSON record returned
+      request(srv)
+         .get(`/${ENDPOINT}/records/${branch}?module=${repo}`)
+         .expect(200)
+         .expect('Content-Type', 'application/json')
+         .end(function (err, res) {
+            if (err) return done(err);
+            const record = JSON.parse(res.text);
+            expect(record.commit).eq(SHA);
+            done();
+         });
+   });
+
 });
 
 
@@ -561,48 +679,38 @@ describe('running tests', () => {
       expect(callback.calledOnceWithExactly()).true;
    });
 
-   it('runtests parses MATLAB error', async (done) => {
+   it('runtests parses MATLAB error', (done) => {
+      var err;
       const errmsg = 'Error in MATLAB_function line 23';
       stub.callsArgWith(3, {code: 1}, 'running tests', errmsg);
-      sandbox.stub(fs.promises, 'writeFile');  // For safety
-      const job = {
-         data: {sha: SHA},
-         done: (err) => {
-            expect(err).instanceOf(Error);
-            expect(err.message).to.have.string(errmsg);
-            done();
-         }
-      };
-      runTests(job);
-   });
-
-   it('runtests parses Python error', async (done) => {
-      stub.callsArgWith(3, {code: 1}, 'running tests', stdErr);
-      sandbox.stub(fs.promises, 'writeFile');  // For safety
-      const job = {
-         data: {sha: SHA},
-         done: (err) => {
-            expect(err).instanceOf(Error);
-            let errmsg = 'FileNotFoundError: Invalid data root folder E:\\FlatIron\\integration';
-            expect(err.message.startsWith(errmsg)).true;
-            done();
-         }
-      };
-      runTests(job);
-   });
-
-   it('runtests saves error record', (done) => {
-      // We don't wait for the file to be written so let's inject the done callback into the
-      // writeFile method.
       sandbox.stub(fs.promises, 'writeFile').callsFake(() => {
          sandbox.assert.calledWith(fs.promises.writeFile, config.dbFile);
+         expect(err).instanceOf(Error);
+         expect(err.message).to.have.string(errmsg);
          done();
-      });
-      stub.callsArgWith(3, {code: 1}, 'running tests', stdErr);
-      runTests({
+      })
+      const job = {
          data: {sha: SHA},
-         done: () => {}
-      });
+         done: (e) => { err = e; }
+      };
+      runTests(job);
+   });
+
+   it('runtests parses Python error', (done) => {
+      var err;
+      stub.callsArgWith(3, {code: 1}, 'running tests', stdErr);
+      sandbox.stub(fs.promises, 'writeFile').callsFake(() => {
+         sandbox.assert.calledWith(fs.promises.writeFile, config.dbFile);
+         expect(err).instanceOf(Error);
+         let errmsg = 'FileNotFoundError: Invalid data root folder E:\\FlatIron\\integration';
+         expect(err.message.startsWith(errmsg)).true;
+         done();
+      })
+      const job = {
+         data: {sha: SHA},
+         done: (e) => { err = e; }
+      };
+      runTests(job);
    });
 
    afterEach(function () {

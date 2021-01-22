@@ -119,6 +119,38 @@ handler.on('error', function (err) {
  */
 srv.use(`/${ENDPOINT}/coverage`, express.static(path.join(config.dataPath, 'reports')))
 
+/**
+ * Serve the test records for requested commit id.  Returns JSON data for the commit.
+ */
+srv.get(`/${ENDPOINT}/records/:id`, function (req, res) {
+   let id = lib.shortID(req.params.id);
+   let isSHA = (req.query.branch || !lib.isSHA(req.params.id)) === false;
+   console.log('Request for test records for ' + (isSHA? `commit ${id}` : `branch ${req.params.id}`));
+   const data = {
+      owner: process.env['REPO_OWNER'],
+      repo: req.query.module || process.env.REPO_NAME,
+      id: req.params.id
+   };
+   let endpoint = `GET /repos/:owner/:repo/${isSHA ? 'commits' : 'branches'}/:id`;
+   request(endpoint, data)
+      .then(response => {
+         let id = isSHA ? response.data.object.sha : response.data.object.commit.sha;
+         log('Commit ID found: %s', id);
+         let record = lib.loadTestRecords(id);
+         if (record) {
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify(record));
+         } else {
+            res.statusCode = 404;
+    	      res.send(`${isSHA? 'Commit' : 'Branch'} ${req.params.id} not recognized.`);
+         }
+      })
+      .catch(err => {
+         log('%s', err.message);
+    	   res.statusCode = 404;
+    	   res.send(`Record for ${isSHA? 'commit' : 'branch'} ${req.params.id} not found`);
+      });
+});
 
 /**
  * Serve the test results for requested commit id.  This will be the result of a user clicking on
