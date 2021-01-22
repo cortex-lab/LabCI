@@ -1,0 +1,7 @@
+language: node_js
+os: linux
+env:
+  - NODE_ENV=test
+  - DOTENV_CONFIG_PATH=./test/fixtures/.env.test
+script:
+  - mocha -r dotenv/config

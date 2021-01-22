@@ -41,5 +41,12 @@
   },
   "engines": {
     "node": ">=12.19.0"
+  },
+  "mocha": {
+    "env": {
+      "dotenv_config_path": "./test/fixtures/.env.test",
+      "NODE_ENV": "test"
+    },
+    "require": "dotenv/config"
   }
 }
