@@ -30,6 +30,8 @@
 - coverage checks ignored for branches named 'documentation' 
 - switch from Serveo to localtunnel
 - increased timeout from 5 to 8 minutes
+- generalized some variables such as repo owner, ci context
+- updated documentation
 
 ## [1.1.0]
 ### Added
@@ -43,7 +45,7 @@
 - suppress warnings about shadowing builtins in runAllTests
 - run tests in subfolders
 - filter out performance tests
-- skip tests for commits to branches named 'documentation'
+- skip checks for commits to branches named 'documentation'
 
 ## [1.0.0]
 ### Added
