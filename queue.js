@@ -50,7 +50,7 @@ class Queue extends EventEmitter {
     // generate 16 digit job id
     let d = Date.now().toString()
     let r = Math.floor(Math.random() * 1000).toString()
-    let id = Number(r.padStart(3, '0') + d)
+    let id = Number((r + d).padEnd(16, '0'))
     this.pile.push(new Job(id, data)); // add to bottom of pile
     console.log('Job added (' + this.pile.length + ' on pile)')
     this.next(); // Start next job if idle
