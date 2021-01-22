@@ -495,11 +495,7 @@ describe('records endpoint', () => {
 
    it('expect JSON log', (done) => {
       scope.get(`/repos/${process.env.REPO_OWNER}/${process.env.REPO_NAME}/commits/${SHA}`)
-           .reply(200, {
-              object: {
-                 sha: SHA
-              }
-           });
+           .reply(200, { sha: SHA });
       // Check JSON record returned
       request(srv)
          .get(`/${ENDPOINT}/records/${SHA}`)
@@ -516,11 +512,7 @@ describe('records endpoint', () => {
    it('expect works with short id', (done) => {
       const id = SHA.slice(0, 7);
       scope.get(`/repos/${process.env.REPO_OWNER}/${process.env.REPO_NAME}/commits/${id}`)
-           .reply(200, {
-              object: {
-                 sha: SHA
-              }
-           });
+           .reply(200, { sha: SHA } );
       // Check JSON record returned
       request(srv)
          .get(`/${ENDPOINT}/records/${id}`)
@@ -554,10 +546,8 @@ describe('records endpoint', () => {
       const repo = 'foobar';
       scope.get(`/repos/${process.env.REPO_OWNER}/${repo}/branches/${branch}`)
            .reply(200, {
-              object: {
-                 commit: {
-                    sha: SHA
-                 }
+              commit: {
+                 sha: SHA
               }
            });
       // Check JSON record returned

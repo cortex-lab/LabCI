@@ -132,9 +132,10 @@ srv.get(`/${ENDPOINT}/records/:id`, function (req, res) {
       id: req.params.id
    };
    let endpoint = `GET /repos/:owner/:repo/${isSHA ? 'commits' : 'branches'}/:id`;
+   log('request to endpoint %s', endpoint);
    request(endpoint, data)
       .then(response => {
-         let id = isSHA ? response.data.object.sha : response.data.object.commit.sha;
+         let id = isSHA ? response.data.sha : response.data.commit.sha;
          log('Commit ID found: %s', id);
          let record = lib.loadTestRecords(id);
          if (record) {
