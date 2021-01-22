@@ -4,7 +4,7 @@ A small set of modules written in Node.js for running automated tests of MATLAB 
 
 Currently unsupported:
 * Running tests on forked repositories
-* 
+* Testing multiple repos (unless they are submodules) 
 
 ## Getting Started
 
@@ -43,6 +43,13 @@ Add these to the settings.json file in config:
   }
 }
 ``` 
+Some extra optional settings:
+
+- `shell` - optional shell to use when calling scripts (see `child_process.execFile` options).
+- `events:event:ref_include` - same as `ref_ignore`, but a pass list instead of block list.
+- `kill_children` - if present and true, `tree-kill` is used to kill the child processes, required 
+if shell/batch script forks test process (e.g. a batch script calls python).
+
 Finally, ensure these scripts are executable by node:
 ```
 chmod u+x ./run_tests.BAT

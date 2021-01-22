@@ -19,6 +19,7 @@
  - index.js renamed to main.js
  - preparing the environment may be optional
  - errors during test function are now saved into test record db
+ - new config options (see readme)
  
    
 ## [1.2.0]
