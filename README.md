@@ -50,6 +50,7 @@ Some extra optional settings:
 - `events:event:ref_include` - same as `ref_ignore`, but a pass list instead of block list.
 - `kill_children` - if present and true, `tree-kill` is used to kill the child processes, required 
 if shell/batch script forks test process (e.g. a batch script calls python).
+- `repos` - an array of submodules or map of modules to their corresponding paths.
 
 Finally, ensure these scripts are executable by node:
 ```

@@ -350,10 +350,10 @@ function checkout(repoPath, ref) {
 function listSubmodules(repoPath) {
    if (!shell.which('git')) { throw new Error('Git not found on path'); }
    shell.pushd(repoPath);
-   let listModules = 'git config --file .gitmodules --get-regexp path | awk \'{ print $2 }\'';
-   const modules = shell.exec(listModules);
+   let listModules = 'git config --file .gitmodules --get-regexp path';
+   const modules = shell.exec(listModules)
    shell.popd();
-   return (!modules.code && modules.stdout !== '')? modules.split('\n') : null;
+   return (!modules.code && modules.stdout !== '')? modules.match(/(?<=submodule.)[\w-]+/g) : null;
 }
 
 /**
@@ -366,14 +366,14 @@ function listSubmodules(repoPath) {
  */
 function getRepoPath(name) {
    if (!config.repos) { return process.env['REPO_PATH']; }  // Legacy, to remove
-   if (config.repos.name) { return config.repos.name; }  // Found path, return
-   for (let repo of config.repos) {
-      let modules = listSubmodules(repo);
-      if (modules && modules.includes(name)) {
-         // If the repo is a submodule, modify path
-         return repo + path.sep + name;
-      }
+   if (config.repos[name]) { return config.repos[name]; }  // Found path, return
+   const modules = listSubmodules(process.env['REPO_PATH']);
+   let repoPath = process.env['REPO_PATH'];
+   if (modules && modules.includes(name)) {
+      // If the repo is a submodule, modify path
+      repoPath += (path.sep + name);
    }
+   return repoPath;  // No modules matched, return default
 }
 
 
@@ -578,5 +578,6 @@ queue.on('finish', (err, job) => { // On job end post result to API
 });
 
 module.exports = {
-   updateStatus, srv, handler, setAccessToken, prepareEnv, runTests, eventCallback
+   updateStatus, srv, handler, setAccessToken, prepareEnv,
+   runTests, eventCallback, getRepoPath, listSubmodules
 }
