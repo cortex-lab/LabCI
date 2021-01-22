@@ -118,6 +118,7 @@ describe('Test startJobTimer:', function() {
         // and kill it.  Should be relatively consistent across platforms.
         const cmd = 'ping 127.0.0.1 -n 6 > nul';
         const childProcess = cp.exec(cmd, () => { done(); });
+        childProcess.kill = () => {};  // nop
         const job = { data: {process: childProcess} };
         lib.startJobTimer(job, true);
         // Skip to the end...

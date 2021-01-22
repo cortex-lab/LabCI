@@ -245,13 +245,10 @@ function startJobTimer(job, kill_children=false) {
    const timeout = config.timeout || 8*60000;  // How long to wait for the tests to run
    return setTimeout(() => {
       console.log('Max test time exceeded');
-      if (kill_children) {
-         log('Killing all processes');
-         kill(job.data.process.pid);
-      } else {
-         log('Ending test process');
-         job.data.process.kill();
-      }
+      log(kill_children? 'Killing all processes' : 'Ending test process');
+      let pid = job.data.process.pid;
+      job.data.process.kill();
+      if (kill_children) { kill(pid); }
    }, timeout);
 }
 
