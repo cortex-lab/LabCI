@@ -98,7 +98,7 @@ describe('Test updateJobFromRecord:', function() {
 describe('Test startJobTimer:', function() {
    var clock;
 
-    beforeEach(function () {
+    before(function () {
         clock = sinon.useFakeTimers();
     });
 
