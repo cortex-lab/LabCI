@@ -4,8 +4,9 @@ env:
   - NODE_ENV=test
 jobs:
   include:
-    - os: windows
+    - name: "windows"
+      os: windows
       env: NODE_ENV=test DOTENV_CONFIG_PATH=.\\test\\fixtures\\.env.test
-    - os: linux
+    - name: "linux"
+      os: linux
       env: NODE_ENV=test DOTENV_CONFIG_PATH=./test/fixtures/.env.test
-
