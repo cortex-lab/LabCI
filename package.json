@@ -4,7 +4,7 @@
   "description": "A small set of modules written in Node.js for running automated tests of MATLAB and Python code in response to GitHub events.  Also submits code coverage to the Coveralls API.",
   "main": "main.js",
   "scripts": {
-    "test": "NODE_ENV=test DOTENV_CONFIG_PATH=.\\\\test\\\\fixtures\\\\.env.test mocha -r dotenv/config ./test --recursive --reporter spec",
+    "test": "NODE_ENV=test DOTENV_CONFIG_PATH=./test/fixtures/.env.test mocha -r dotenv/config ./test",
     "start": "node -r dotenv/config main.js"
   },
   "repository": {
