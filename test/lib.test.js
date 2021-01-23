@@ -1,5 +1,6 @@
 const fs = require('fs');
 const cp = require('child_process');
+const shell = require('shelljs');
 
 const config = require('../config/config').settings
 const assert = require('assert')
@@ -96,11 +97,9 @@ describe('Test updateJobFromRecord:', function() {
  * job data.
  */
 describe('Test startJobTimer:', function() {
-   var clock;
+    var clock;
 
-    before(function () {
-        clock = sinon.useFakeTimers();
-    });
+    before(() => { clock = sinon.useFakeTimers(); });
 
     it('expect process killed', function (done) {
         const childProcess = {
@@ -224,13 +223,11 @@ describe('Test saving test records:', function() {
  * This tests the shields callback which returns sheilds.io API data for coverage and build status.
  */
 describe("getBadgeData function", () => {
-   var scope;  // Our server mock
-   var sandbox;  // Sandbox for spying on queue
+   const sandbox = sinon.createSandbox();  // Sandbox for spying on queue
    var input;  // Input data for function
 
    beforeEach(function () {
       queue.process(async (_job, _done) => {})  // nop
-      sandbox = sinon.createSandbox();
       sandbox.spy(queue);
       input = {
          sha: null,
@@ -333,7 +330,7 @@ describe("getBadgeData function", () => {
          message: 'pending',
          color: 'orange'
       };
-      data = lib.getBadgeData(input);
+      let data = lib.getBadgeData(input);
       expect(data).to.deep.equal(expected);
       sandbox.assert.calledOnce(queue.add);
    });
@@ -453,5 +450,70 @@ describe('Test isSHA', function() {
    it('expect false on fake', function () {
       expect(lib.isSHA(ids[2])).false;
    });
+});
+
+
+/**
+ * A test for listSubmodules function.
+ */
+describe('Test listSubmodules', function() {
+    const sandbox = sinon.createSandbox();
+    const submodules = 'submodule.alyx-matlab.path alyx-matlab\nsubmodule.signals.path signals\n';
+
+    beforeEach(function() {
+        sandbox.spy(shell, 'pushd');
+        sandbox.spy(shell, 'popd');
+    });
+
+   it('expect array returned', function () {
+      // NB: This test is over-engineered :(
+       const output = {
+           code: 0,
+           stdout: submodules,
+           match: (str) => submodules.match(str)
+       };
+       sandbox
+           .stub(shell, 'exec')
+           .returns(output);
+       sandbox
+           .stub(shell, 'which')
+           .withArgs('git')
+           .returns(true);
+       const moduleList = lib.listSubmodules(process.env['REPO_PATH']);
+       expect(moduleList).deep.eq(['alyx-matlab', 'signals']);
+       expect(shell.pushd.calledOnce);
+       expect(shell.pushd.calledOnceWith(process.env['REPO_PATH']));
+       expect(shell.popd.calledOnce);
+   });
+
+   it('expect empty array returned', function () {
+        const output = {
+           code: 0,
+           stdout: '',
+           match: (str) => ''.match(str)
+        };
+        sandbox
+           .stub(shell, 'exec')
+           .returns(output);
+        sandbox
+           .stub(shell, 'which')
+           .withArgs('git')
+           .returns(true);
+        const moduleList = lib.listSubmodules(process.env['REPO_PATH']);
+        expect(moduleList).to.be.empty;
+   });
+
+   it('expect error', function () {
+        sandbox
+           .stub(shell, 'which')
+           .withArgs('git')
+           .returns(null);
+        expect(() => lib.listSubmodules(process.env['REPO_PATH'])).to.throw();
+   });
+
+    afterEach(function() {
+        sandbox.restore();
+    });
+
 });
 

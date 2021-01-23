@@ -222,7 +222,7 @@ function runTests(job) {
 
    // Go ahead with tests
    const sha = job.data['sha'];
-   const repoPath = getRepoPath(job.data.repo);
+   const repoPath = lib.getRepoPath(job.data.repo);
    const logName = path.join(config.dataPath, 'reports', sha, `std_output-${lib.shortID(sha)}.log`);
    let fcn = lib.fullpath(config.test_function);
    debug('starting test child process %s', fcn);
@@ -278,7 +278,7 @@ function runTests(job) {
 
 function prepareEnv(job, callback) {
    log('Preparing environment for job #%g', job.id)
-   const repoPath = getRepoPath(job.data.repo);
+   const repoPath = lib.getRepoPath(job.data.repo);
    switch (config.setup_function) {
       case undefined:
          // run some basic git commands
@@ -339,41 +339,6 @@ function checkout(repoPath, ref) {
       verify(shell.exec('git status'));
    }
    shell.popd();
-}
-
-
-/**
- * Lists the submodules within a Git repository.  If none are found null is returned.
- * @param {String} repoPath - The path of the repository
- * @returns {Array} A list of submodule names, or null if none were found
- */
-function listSubmodules(repoPath) {
-   if (!shell.which('git')) { throw new Error('Git not found on path'); }
-   shell.pushd(repoPath);
-   let listModules = 'git config --file .gitmodules --get-regexp path';
-   const modules = shell.exec(listModules)
-   shell.popd();
-   return (!modules.code && modules.stdout !== '')? modules.match(/(?<=submodule.)[\w-]+/g) : null;
-}
-
-/**
- * Get the corresponding repository path for a given repo.  The function first checks the settings.
- * If the `repos` field doesn't exist, the path in ENV is used.  If the name is not a key in the
- * `repos` object then we check each repo path for submodules and return the first matching
- * submodule path.  Otherwise returns null.
- * @param {String} name - The name of the repository
- * @returns {String} The repository path if found
- */
-function getRepoPath(name) {
-   if (!config.repos) { return process.env['REPO_PATH']; }  // Legacy, to remove
-   if (config.repos[name]) { return config.repos[name]; }  // Found path, return
-   const modules = listSubmodules(process.env['REPO_PATH']);
-   let repoPath = process.env['REPO_PATH'];
-   if (modules && modules.includes(name)) {
-      // If the repo is a submodule, modify path
-      repoPath += (path.sep + name);
-   }
-   return repoPath;  // No modules matched, return default
 }
 
 
@@ -578,6 +543,5 @@ queue.on('finish', (err, job) => { // On job end post result to API
 });
 
 module.exports = {
-   updateStatus, srv, handler, setAccessToken, prepareEnv,
-   runTests, eventCallback, getRepoPath, listSubmodules
+   updateStatus, srv, handler, setAccessToken, prepareEnv, runTests, eventCallback
 }

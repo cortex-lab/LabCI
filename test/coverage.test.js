@@ -18,7 +18,7 @@ describe('Test coverage parser:', function() {
         let md5 = '385a5d56850127317c317b0f66e91078';
         let code = 'line1\nline2\n\rline3\n\rline4';
         testable = function(obj, done) {
-            expect([291, 63]).to.include(obj.source_files.length);
+            expect([496, 63]).to.include(obj.source_files.length);
             let file = obj.source_files[0];
             expect(file).to.have.all.keys('name', 'source_digest', 'coverage');
             expect(file['source_digest']).to.eq(md5);
@@ -27,21 +27,19 @@ describe('Test coverage parser:', function() {
         sandbox = sinon.createSandbox();
         sandbox
             .stub(fs, 'readFileSync')
-            .withArgs(sinon.match((x) => x.replace('\\', '/').startsWith('C:/Rigbox')))
-            .returns(code)
-            .withArgs(sinon.match((x) => x.replace('\\', '/').startsWith('C:/ibllib')))
+            .withArgs(sinon.match((x) => x.replace('\\', '/').startsWith('C:/Hello-World')))
             .returns(code);
         fs.readFileSync.callThrough();
     })
 
     it('Check loading MATLAB', function (done) {
         let xmlPath = path.resolve('test', 'fixtures', 'CoverageResults.mat.xml')
-        Coverage(xmlPath, 'rigbox', dummy_id, obj => testable(obj, done) );
+        Coverage(xmlPath, 'Hello-World', dummy_id, [], obj => testable(obj, done) );
     });
 
     it('Check loading Python', function (done) {
         let xmlPath = path.resolve('test', 'fixtures', 'CoverageResults.py.xml')
-        Coverage(xmlPath, 'ibllib', dummy_id, obj => testable(obj, done) );
+        Coverage(xmlPath, 'Hello-World', dummy_id, [], obj => testable(obj, done) );
     });
 
     afterEach(function () { sandbox.restore(); });

@@ -33,6 +33,7 @@ var token = process.env.COVERALLS_TOKEN;
  * Loads file containing source code, returns a hash and line count
  * @param {String} path - Path to the source code file.
  * @returns {Object} key `Hash` contains MD5 digest string of file; `count` contains number of lines in source file
+ * @todo Make asynchronous
  */
 function md5(path) {
   var hash = crypto.createHash('md5'); // Creating hash object
@@ -58,12 +59,13 @@ function md5(path) {
 function formatCoverage(classList, srcPath, sha) {
   var job = {};
   var sourceFiles = [];
+  var digest;
   srcPath = typeof srcPath != "undefined" ? srcPath : process.env.HOMEPATH; // default to home dir
   // For each class, create file object containing array of lines covered and add to sourceFile array
   classList.forEach( async c => {
     let file = {}; // Initialize file object
     let fullPath = c.$.filename.startsWith(srcPath)? c.$.filename : path.join(srcPath, c.$.filename);
-    var digest = md5(fullPath); // Create digest and line count for file // FIXME use path lib
+    digest = md5(fullPath); // Create digest and line count for file
     let lines = new Array(digest.count).fill(null); // Initialize line array the size of source code file
     c.lines[0].line.forEach(ln => {
       let n = Number(ln.$.number);
@@ -92,19 +94,18 @@ function formatCoverage(classList, srcPath, sha) {
  * @param {String} path - Path to the XML file containing coverage information.
  * @param {String} sha - The commit SHA for this coverage test
  * @param {String} repo - The repo to which the commit belongs
+ * @param {Array} submodules - A list of submodules for separating coverage into
  * @param {function} callback - The callback function to run when complete
- * @todo Generalize ignoring of submodules
  * @see {@link https://github.com/cobertura/cobertura/wiki|Cobertura Wiki}
  */
-function coverage(path, repo, sha, callback) {
+function coverage(path, repo, sha, submodules, callback) {
   cb = callback; // @fixme Making callback global feels hacky
   fs.readFile(path, function(err, data) { // Read in XML file
-    // @fixme deal with file not found errors
-    if (err) {throw err}
+    if (err) {throw err}  // @fixme deal with file not found errors
     parser.parseString(data, function (err, result) { // Parse XML
         // Extract root code path
         const rootPath = (result.coverage.sources[0].source[0] || process.env.REPO_PATH).replace(/[\/|\\]+$/, '')
-        assert(rootPath.toLowerCase().endsWith(repo || process.env.REPO_NAME), 'Incorrect source code repository')
+        assert(rootPath.endsWith(process.env.REPO_NAME), 'Incorrect source code repository')
         timestamp = new Date(result.coverage.$.timestamp*1000); // Convert UNIX timestamp to Date object
         let classes = []; // Initialize classes array
 
@@ -113,19 +114,22 @@ function coverage(path, repo, sha, callback) {
         classes = classes.reduce((acc, val) => acc.concat(val), []); // Flatten
 
         // The submodules
-        var modules = {'main' : [], 'alyx-matlab' : [], 'signals' : [], 'npy-matlab' : [], 'wheelAnalysis' : []};
+        const byModule = {'main' : []};
+        submodules.forEach((x) => { byModule[x] = []; });  // initialize submodules
+
         // Sort into piles
-        modules['main'] = classes.filter(function (e) {
+        byModule['main'] = classes.filter(function (e) {
             if (e.$.filename.search(/(tests\\|_.*test|docs\\)/i) !== -1) {return false;} // Filter out tests and docs
             if (!Array.isArray(e.lines[0].line)) {return false;} // Filter out files with no functional lines
-            if (e.$.filename.startsWith('alyx-matlab\\')) {modules['alyx-matlab'].push(e); return false;}
-            if (e.$.filename.startsWith('signals\\')) {modules.signals.push(e); return false;}
-            if (e.$.filename.startsWith('npy-matlab\\')) {modules['npy-matlab'].push(e); return false;}
-            if (e.$.filename.startsWith('wheelAnalysis\\')) {modules.wheelAnalysis.push(e); return false;}
-            else {return true}
+            for (let submodule of submodules) {
+               if (e.$.filename.startsWith(submodule)) {
+                  byModule[submodule].push(e); return false;
+               }
+            }
+            return true;
         });
         // Select module
-        modules = modules[repo.toLowerCase()] || modules['main'];
+        let modules = byModule[repo] || byModule['main'];
         formatCoverage(modules, rootPath, callback);
      });
   });

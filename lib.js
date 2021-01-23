@@ -7,6 +7,7 @@ const path = require('path');
 const createDebug  = require('debug');
 const localtunnel = require('localtunnel');
 const kill = require('tree-kill');
+const shell = require('shelljs');
 
 const config = require('./config/config').settings;
 const Coverage = require('./coverage');
@@ -175,19 +176,6 @@ function partial(func) {
    };
 }
 
-function chain(func) {
-   return function curried(...args) {
-      if (args.length >= func.length) {
-         return func.apply(this, args);
-      } else {
-         return function(...args2) {
-            return curried.apply(this, args2.concat(args));
-         }
-      }
-   };
-}
-
-
 
 /**
  * Check if job already has record, if so, update from record and finish, otherwise call tests function.
@@ -236,6 +224,42 @@ const openTunnel = async () => {
 
 
 /**
+ * Lists the submodules within a Git repository.  If none are found null is returned.
+ * @param {String} repoPath - The path of the repository
+ * @returns {Array} A list of submodule names, or null if none were found
+ */
+function listSubmodules(repoPath) {
+   if (!shell.which('git')) { throw new Error('Git not found on path'); }
+   shell.pushd(repoPath);
+   let listModules = 'git config --file .gitmodules --get-regexp path';
+   const modules = shell.exec(listModules)
+   shell.popd();
+   return (!modules.code && modules.stdout !== '')? modules.match(/(?<=submodule.)[\w-]+/g) : [];
+}
+
+
+/**
+ * Get the corresponding repository path for a given repo.  The function first checks the settings.
+ * If the `repos` field doesn't exist, the path in ENV is used.  If the name is not a key in the
+ * `repos` object then we check each repo path for submodules and return the first matching
+ * submodule path.  Otherwise returns null.
+ * @param {String} name - The name of the repository
+ * @returns {String} The repository path if found
+ */
+function getRepoPath(name) {
+   if (!config.repos) { return process.env['REPO_PATH']; }  // Legacy, to remove
+   if (config.repos[name]) { return config.repos[name]; }  // Found path, return
+   const modules = listSubmodules(process.env['REPO_PATH']);
+   let repoPath = process.env['REPO_PATH'];
+   if (modules && modules.includes(name)) {
+      // If the repo is a submodule, modify path
+      repoPath += (path.sep + name);
+   }
+   return repoPath;  // No modules matched, return default
+}
+
+
+/**
  * Starts a timer with a callback to kill the job's process.
  * @param {Object} job - The Job with an associated process in the data field.
  * @param {boolean} kill_children - If true all child processes are killed.
@@ -263,8 +287,9 @@ function computeCoverage(job) {
     return;
   }
   console.log('Updating coverage for job #' + job.id)
-  let xmlPath = path.join(config.dataPath, 'reports', job.data.sha, 'CoverageResults.xml')
-  Coverage(xmlPath, job.data.repo, job.data.sha, obj => {
+  const xmlPath = path.join(config.dataPath, 'reports', job.data.sha, 'CoverageResults.xml')
+  const modules = listSubmodules(process.env.REPO_PATH);
+  Coverage(xmlPath, job.data.repo, job.data.sha, modules, obj => {
     // Digest and save percentage coverage
     let misses = 0, hits = 0;
     for (let file of obj.source_files) {
@@ -397,7 +422,7 @@ function getBadgeData(data) {
       record = Array.isArray(record) ? record.pop() : record;  // in case of duplicates, take last
       switch (data.context) {
          case 'status':
-            if (record['status'] === 'error' || !record['coverage']) {
+            if (record['status'] === 'error') {
                report['message'] = 'unknown';
                report['color'] = 'orange';
             } else {
@@ -433,5 +458,5 @@ class APIError extends Error {
 module.exports = {
    ensureArray, loadTestRecords, compareCoverage, computeCoverage, getBadgeData, log, shortID,
    openTunnel, APIError, queue, partial, startJobTimer, updateJobFromRecord, shortCircuit, isSHA,
-   fullpath, strToBool, saveTestRecords
+   fullpath, strToBool, saveTestRecords, listSubmodules, getRepoPath
 }

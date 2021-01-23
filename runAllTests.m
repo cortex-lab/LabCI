@@ -49,10 +49,8 @@ try
     all_tests = all_tests(startsWith({all_tests.Name}, 'Alyx', 'IgnoreCase', true));
   elseif strcmp(repo, 'alyx-matlab')
     all_tests = alyx_tests;
-    root = fullfile(root, repo);
   elseif strcmp(repo, 'signals')
     all_tests = signals_tests;
-    root = fullfile(root, repo);
   end
 
   % Filter out performance tests
