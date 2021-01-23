@@ -105,9 +105,13 @@ srv.post('/github', async (req, res, next) => {
    console.log('Post received')
    let id = req.header('x-github-hook-installation-target-id');
    if (id != process.env.GITHUB_APP_IDENTIFIER) { next(); return; }  // Not for us; move on
-   await setAccessToken();
-   log.extend('event')('X-GitHub-Event: %s', req.header('X-GitHub-Event'));
-   handler(req, res, () => res.end('ok'));
+   if (req.header('X-GitHub-Event') in supportedEvents) {
+      await setAccessToken();
+      handler(req, res, () => res.end('ok'));
+   } else {
+      log('GitHub Event "%s" not supported', req.header('X-GitHub-Event'));
+      res.sendStatus(400);
+   }
 });
 
 
