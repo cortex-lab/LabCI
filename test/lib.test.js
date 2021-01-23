@@ -318,6 +318,11 @@ describe("getBadgeData function", () => {
       data = lib.getBadgeData(input);
       expect(data).to.deep.equal(expected);
       sandbox.assert.calledOnce(queue.add);
+
+      // Shouldn't add as job already queued
+      data = lib.getBadgeData(input);
+      expect(data).to.deep.equal(expected);
+      sandbox.assert.calledOnce(queue.add);
    });
 
    it('Check force flag', function () {

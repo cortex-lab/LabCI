@@ -413,7 +413,7 @@ function getBadgeData(data) {
       report['color'] = 'orange';
       // Check test isn't already on the pile
       let onPile = false;
-      for (let job of queue.pile) { if (job.id === id) { onPile = true; break; } }
+      for (let job of queue.pile) { if (job.data.sha === id) { onPile = true; break; } }
       if (!onPile) { // Add test to queue
          data['skipPost'] = true
          queue.add(data);
