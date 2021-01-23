@@ -7,13 +7,9 @@
  * @requires modules:chai-spies
  */
 const {describe} = require('mocha');
-// const assert = require('chai').assert;
-const spies = require('chai-spies');
-const chai = require('chai');
-const should = chai.should();
+const sinon = require('sinon');
 const assert = require('assert');
-
-chai.use(spies);
+const expect = require('chai').expect;
 
 const Queue = require('../queue.js');
 
@@ -71,6 +67,8 @@ describe('Test Queue constructor:', function() {
 });
 
 describe('Test Queue callbacks:', function() {
+    var spy;
+
     beforeEach(function () {
         this.Q = new Queue();
         function process(job, done) {
@@ -84,24 +82,44 @@ describe('Test Queue callbacks:', function() {
                 }
             }
         }
-        this.spy = chai.spy(process);
-        this.Q.process(async (job, done) => this.spy(job, done))
+        spy = sinon.spy(process);
+        this.Q.process(async (job, done) => spy(job, done))
     });
 
-    it('Check process callback', function () {
-        // TODO Write async check
-        this.Q.add({'outcome': 1})
-        var spy = this.spy
-        this.Q.on('finish', job => {
-             spy.should.have.been.called.once;
+    it('Check finish callback', function (done) {
+        var calls = 0;
+        this.Q.on('error', () => { assert(false); });
+        this.Q.on('finish', (err) => {
+            calls += 1;
+            expect(spy.calledOnce).true;
+            expect(err).undefined
+            if (calls === 2) { done(); }
         });
-        // this.Q.on('complete', job => {
-        //     assert.strictEqual(job.data['outcome'], 1, 'complete called with unexpected outcome')
-        // });
-        // this.Q.on('error', err => {
-        //     assert.strictEqual(err.message, 'failed', 'failed to catch error')
-        // });
-        // this.Q.add({'outcome': 1})
-        // this.Q.add({'outcome': 0})
+        this.Q.on('complete', (job) => {
+            calls += 1;
+            expect(spy.calledOnce).true;
+            expect(job.data.outcome).eq(1);
+            if (calls === 2) { done(); }
+        });
+        this.Q.add({'outcome': 1});
     });
+
+    it('Check finish err callback', function (done) {
+        var calls = 0;
+        this.Q.on('finish', (err) => {
+            calls += 1;
+            expect(spy.calledOnce).true;
+            expect(err).not.null
+            if (calls === 2) { done(); }
+        });
+        this.Q.on('complete', () => { assert(false); });
+        this.Q.on('error', (err) => {
+            calls += 1;
+            expect(spy.calledOnce).true;
+            expect(err).not.null
+            if (calls === 2) { done(); }
+        });
+        this.Q.add({'outcome': 0});
+    });
+
 });

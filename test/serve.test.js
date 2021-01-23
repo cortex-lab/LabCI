@@ -10,7 +10,6 @@ const assert = require('chai').assert;
 const appAuth = require("@octokit/auth-app");
 
 const APIError = require('../lib').APIError;
-const lib = require('../lib');
 const { updateStatus, setAccessToken, eventCallback, srv, prepareEnv, runTests } = require('../serve');
 const queue = require('../lib').queue;
 const config = require('../config/config').settings;
@@ -27,14 +26,13 @@ const SHA = 'cabe27e5c8b8cb7cdc4e152f1cf013a89adc7a71'
 describe('setAccessToken', () => {
    var scope;  // Our server mock
    var clock;  // Our clock mock for replicable JWT
-   var expiry = new Date(); // Date of token expiry
+   const expiry = new Date(); // Date of token expiry
 
    /**
    * This fixture injects the default null token via setAccessToken.
    */
    async function resetToken() {
       const token_default = {'tokenType': null};
-      const now = new Date('3000-12-30');
       const sandbox = sinon.createSandbox({
          useFakeTimers: {
            now: new Date(3000, 1, 1, 0, 0)
@@ -44,7 +42,8 @@ describe('setAccessToken', () => {
       sandbox.restore();
    }
 
-   before(function () {
+   before(async function () {
+      await resetToken();
       expiry.setTime(expiry.getTime() + 60e3);  // 60s in the future
       // https://runkit.com/gr2m/reproducable-jwt
       clock = sinon.useFakeTimers({
@@ -114,7 +113,7 @@ describe('setAccessToken', () => {
       // token is not requested so long as the token hasn't expired
       clock.restore();
       scope.get(`/repos/${process.env.REPO_OWNER}/${process.env.REPO_NAME}/installation`)
-           .reply(201, {id: APP_ID})
+           .reply(201, {id: APP_ID});
       scope.post(`/app/installations/${APP_ID}/access_tokens`)
            .reply(201, {
               token: '#t0k3N',
@@ -746,7 +745,7 @@ describe('srv github/', () => {
          });
    });
 
-   it('expect error caught', () => {
+   it('expect error caught', (done) => {
       scope.get(`/repos/${process.env.REPO_OWNER}/${process.env.REPO_NAME}/installation`)
            .reply(201, {id: APP_ID});
       scope.post(`/app/installations/${APP_ID}/access_tokens`)
@@ -762,13 +761,14 @@ describe('srv github/', () => {
       request(srv)
          .post(`/github`)  // trailing slash essential
          .set({
-            'X-GitHub-Event': 'issues',
+            'X-GitHub-Event': 'check_suite',
             'x-github-hook-installation-target-id': process.env.GITHUB_APP_IDENTIFIER,
             'X-Hub-Signature': {'sha': null},
             'X-GitHub-Delivery': '72d3162e-cc78-11e3-81ab-4c9367dc0958'
          })
          .end(function (err) {
             expect(err).is.null;  // Should have caught error
+            done()
          });
    });
 

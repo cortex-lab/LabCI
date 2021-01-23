@@ -1,6 +1,19 @@
 # Changelog
 
-## [Latest](https://github.com/cortex-lab/matlab-ci/commits/master) [2.0.0]
+## [Latest](https://github.com/cortex-lab/matlab-ci/commits/master) [2.1.0]
+
+### Modified
+ - More generic handling of submodules
+ - Fix for computing coverage properly
+ - Fix to issue #43 
+ - Fix for issue where jobs added when already on pile
+ - New tests added for listSubmodules
+ - listSubmodules and gerRepoPath now exposed in lib
+ - Removed chai-spies dependency 
+
+
+## [2.0.0]
+
 ### Added
 
  - there are now three major modules: lib, serve and main

@@ -12,6 +12,7 @@ if nargin < 3, logDir = fullfile(getenv('appdata'), 'CI'); end
 try
   %% Initialize enviroment
   dbPath = fullfile(logDir, '.db.json'); % TODO Load from config file
+  [~, repo] = fileparts(repo); % Ensure not full path
   fprintf('Running tests\n')
   fprintf('Repo = %s, sha = %s\n', repo, id)
   origDir = pwd;
@@ -30,7 +31,7 @@ try
   main_tests = testsuite('IncludeSubfolders', true);
 
   %% Gather signals tests
-  root = getOr(dat.paths,'rigbox');
+  root = getOr(dat.paths, 'rigbox');
   signals_tests = testsuite(fullfile(root, 'signals', 'tests'), ...
     'IncludeSubfolders', true);
 
@@ -44,11 +45,11 @@ try
   % the sortByFixtures method to sort the suite.
   all_tests = [main_tests signals_tests alyx_tests];
   % If the repo under test is alyx, filter out irrelevent tests
-  if endsWith(repo, 'alyx')
+  if strcmp(repo, 'alyx')
     all_tests = all_tests(startsWith({all_tests.Name}, 'Alyx', 'IgnoreCase', true));
-  elseif endsWith(repo, 'alyx-matlab')
+  elseif strcmp(repo, 'alyx-matlab')
     all_tests = alyx_tests;
-  elseif endsWith(repo, 'signals')
+  elseif strcmp(repo, 'signals')
     all_tests = signals_tests;
   end
 
