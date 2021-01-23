@@ -86,6 +86,14 @@ async function setAccessToken() {
 ///////////////////// MAIN APP ENTRY POINT /////////////////////
 
 /**
+ * Register invalid Github POST requests to handler via /github endpoint.
+ * Failed spoof attempts may end up here but most likely it will be unsupported webhook events.
+ */
+handler.on('error', function (err) {
+  console.log('Error:', err.message);
+});
+
+/**
  * Callback to deal with POST requests from /github endpoint, authenticates as app and passes on
  * request to handler.
  * @param {Object} req - Request object.
@@ -100,14 +108,6 @@ srv.post('/github', async (req, res, next) => {
    await setAccessToken();
    log.extend('event')('X-GitHub-Event: %s', req.header('X-GitHub-Event'));
    handler(req, res, () => res.end('ok'));
-});
-
-/**
- * Register invalid Github POST requests to handler via /github endpoint.
- * Failed spoof attempts may end up here but most likely it will be unsupported webhook events.
- */
-handler.on('error', function (err) {
-  console.log('Error:', err.message);
 });
 
 

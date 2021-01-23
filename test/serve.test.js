@@ -745,7 +745,7 @@ describe('srv github/', () => {
          });
    });
 
-   it('expect error caught', () => {
+   it('expect error caught', (done) => {
       scope.get(`/repos/${process.env.REPO_OWNER}/${process.env.REPO_NAME}/installation`)
            .reply(201, {id: APP_ID});
       scope.post(`/app/installations/${APP_ID}/access_tokens`)
@@ -761,13 +761,14 @@ describe('srv github/', () => {
       request(srv)
          .post(`/github`)  // trailing slash essential
          .set({
-            'X-GitHub-Event': 'issues',
+            'X-GitHub-Event': 'check_suite',
             'x-github-hook-installation-target-id': process.env.GITHUB_APP_IDENTIFIER,
             'X-Hub-Signature': {'sha': null},
             'X-GitHub-Delivery': '72d3162e-cc78-11e3-81ab-4c9367dc0958'
          })
          .end(function (err) {
             expect(err).is.null;  // Should have caught error
+            done()
          });
    });
 
