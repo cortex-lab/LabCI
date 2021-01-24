@@ -5,6 +5,7 @@
   "main": "main.js",
   "scripts": {
     "test": "mocha -r dotenv/config ./test",
+    "coverage": "nyc npm run test",
     "start": "node -r dotenv/config main.js"
   },
   "repository": {
@@ -26,6 +27,7 @@
     "express": "^4.17.1",
     "github-webhook-handler": "^1.0.0",
     "localtunnel": "^2.0.1",
+    "nyc": "^15.1.0",
     "shelljs": "^0.8.4",
     "tree-kill": "^1.2.2"
   },

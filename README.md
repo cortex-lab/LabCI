@@ -1,5 +1,6 @@
 # MATLAB-ci
 [![Build Status](https://travis-ci.com/cortex-lab/matlab-ci.svg?branch=master)](https://travis-ci.com/cortex-lab/matlab-ci)
+[![Coverage](https://img.shields.io/badge/coverage-72.35-yellowgreen)](https://img.shields.io/badge/coverage-72.35-yellowgreen)
 
 A small set of modules written in Node.js for running automated tests of MATLAB code in response to GitHub events.  Also submits code coverage to the Coveralls API.
 
@@ -59,9 +60,18 @@ chmod u+x ./prep_env.BAT
 ```
 
 ## Running the tests
-
+Before running the tests ensure the dev dependencies are installed.
+On Windows:
 ```
-mocha ./test
+set "DOTENV_CONFIG_PATH=./test/fixtures/.env.test" & npm test
+```
+On Linux:
+```
+DOTENV_CONFIG_PATH=./test/fixtures/.env.test & npm test
+```
+Coverage:
+```
+DOTENV_CONFIG_PATH=./test/fixtures/.env.test & npm run coverage
 ```
 
 ## Deployment
