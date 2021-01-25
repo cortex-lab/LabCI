@@ -27,18 +27,17 @@
     "express": "^4.17.1",
     "github-webhook-handler": "^1.0.0",
     "localtunnel": "^2.0.1",
-    "nyc": "^15.1.0",
     "shelljs": "^0.8.4",
-    "tree-kill": "^1.2.2"
+    "tree-kill": "^1.2.2",
+    "xml2js": "^0.4.23"
   },
   "devDependencies": {
     "chai": "^4.2.0",
-    "fake-timers": "^0.1.2",
     "mocha": "^8.2.0",
     "nock": "^13.0.4",
     "sinon": "^9.2.1",
     "supertest": "^6.0.1",
-    "xml2js": "^0.4.23"
+    "nyc": "^15.1.0"
   },
   "engines": {
     "node": ">=12.19.0"

@@ -1,6 +1,16 @@
 # Changelog
 
-## [Latest](https://github.com/cortex-lab/matlab-ci/commits/master) [2.1.0]
+## [Latest](https://github.com/cortex-lab/matlab-ci/commits/master) [2.2.0]
+
+## Added
+ - nyc dependency for manual coverage of matlab-ci
+
+## Modified
+
+ - removed old dependencies
+ 
+ 
+## [2.1.0]
 
 ### Modified
  - More generic handling of submodules

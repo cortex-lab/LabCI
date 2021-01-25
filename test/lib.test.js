@@ -8,7 +8,7 @@ const sinon = require('sinon');
 const expect = require('chai').expect
 const lib = require('../lib');
 const queue = require('../lib').queue;
-// TODO update package test script and add cross_env dev dependency
+
 ids = [
     'cabe27e5c8b8cb7cdc4e152f1cf013a89adc7a71',
     '1c33a6e2ac7d7fc098105b21a702e104e09767cf',
