@@ -10,7 +10,9 @@ const assert = require('chai').assert;
 const appAuth = require("@octokit/auth-app");
 
 const APIError = require('../lib').APIError;
-const { updateStatus, setAccessToken, eventCallback, srv, prepareEnv, runTests } = require('../serve');
+const lib = require('../lib');
+const { updateStatus, setAccessToken, eventCallback, srv, prepareEnv, runTests, fetchCommit} =
+   require('../serve');
 const queue = require('../lib').queue;
 const config = require('../config/config').settings;
 const { stdErr, token } = require('./fixtures/static');
@@ -297,7 +299,7 @@ describe("Github event handler callback", () => {
 
    it('test event type error', (done) => {
       sandbox.spy(queue);
-      eventCallback({payload: evt, event: 'issue'}).then(() => {
+      eventCallback({payload: evt, event: 'page_build'}).then(() => {
         done(new Error('Expected method to reject.'));
       })
       .catch((err) => {
@@ -317,6 +319,21 @@ describe("Github event handler callback", () => {
       .catch((err) => {
          sandbox.assert.notCalled(queue.add);
          assert.instanceOf(err, ReferenceError);
+         done();
+      });
+   });
+
+   it('test push event', (done) => {
+      let pr = {
+         ref: config.events.push.ref_ignore,  // Should ignore this ref
+         head_commit: { id: SHA },
+         before: evt.pull_request.base.sha,
+         repository: evt.repository,
+         installation: evt.installation
+      };
+      sandbox.spy(queue);
+      eventCallback({payload: pr, event: 'push'}).then(function() {
+         sandbox.assert.notCalled(queue.add);  // Should have been skipped
          done();
       });
    });
@@ -428,10 +445,12 @@ describe('shields callback', () => {
 describe('logs endpoint', () => {
    var stub;  // Our fs stub
    var logData;  // The text in our log
+   var scope;  // Our server mock
 
    before(function () {
       const log_path = path.join(config.dataPath, 'reports', SHA);
       logData = ['hello world', 'foobar'];
+      scope = nock('https://api.github.com');
       stub = sinon
          .stub(fs, 'readFile')
          .withArgs(path.join(log_path, `std_output-${SHA.substr(0,7)}.log`), 'utf8')
@@ -439,6 +458,11 @@ describe('logs endpoint', () => {
          .withArgs(path.join(log_path, 'test_output.log'), 'utf8')
          .yieldsAsync(null, logData[1]);
    });
+
+   beforeEach(function () {
+      scope.get(`/repos/${process.env.REPO_OWNER}/${process.env.REPO_NAME}/commits/${SHA}`)
+        .reply(200, { sha: SHA });
+   })
 
    it('expect HTML log', (done) => {
       request(srv)
@@ -475,6 +499,49 @@ describe('logs endpoint', () => {
             done();
          });
    });
+});
+
+
+/**
+ * This tests the fetchCommit function.  When provided an incomplete SHA or branch name, it should
+ * return the full commit hash.
+ */
+describe('fetchCommit', () => {
+   var scope;  // Our server mock
+
+   before(function () {
+      scope = nock('https://api.github.com');
+   });
+
+   it('expect full SHA from short id', (done) => {
+      const id = SHA.slice(0, 7);
+      scope.get(`/repos/${process.env.REPO_OWNER}/${process.env.REPO_NAME}/commits/${id}`)
+         .reply(200, {sha: SHA});
+      // Check full ID returned
+      fetchCommit(id)
+         .then(id => {
+            expect(id).eq(SHA);
+            done();
+         });
+   });
+
+   it('expect full SHA from branch and module', (done) => {
+      const branch = 'develop';
+      const repo = 'foobar';
+      scope.get(`/repos/${process.env.REPO_OWNER}/${repo}/branches/${branch}`)
+           .reply(200, {
+              commit: {
+                 sha: SHA
+              }
+           });
+      // Check full ID returned
+      fetchCommit(branch, true, repo)
+         .then(id => {
+            expect(id).eq(SHA);
+            done();
+         });
+   });
+
 });
 
 
@@ -776,4 +843,50 @@ describe('srv github/', () => {
       clock.restore();
    });
 
+});
+
+
+/**
+ * This tests the callback for the job finish event.  Here the status should be updated depending
+ * on the job data.  If the done callback resolves with an error, the state should be error,
+ * regardless of job data.
+ */
+describe('queue finish callback', () => {
+   var scope;  // Our server mock
+   var spy;  // A spy for authentication
+
+   before(function() {
+      // Mock for App.installationAccessToken
+      scope = nock('https://api.github.com');
+      const token = {token: '#t0k3N'};
+      spy = sinon.stub(appAuth, 'createAppAuth').returns(async () => token);
+      scope.get(`/repos/${process.env.REPO_OWNER}/${process.env.REPO_NAME}/installation`)
+           .reply(201, {id: APP_ID});
+   });
+
+   it('test error handling', (done) => {
+      queue.process(async (job) => { job.done(new Error('foobar')); })  // Raise error
+      queue.on('error', _ => {});  // Error to be handles in finish callback
+      const data = {
+         sha: SHA,
+         skipPost: false,
+         context: 'coverage',
+         status: 'success',
+      };
+      const uri = `/repos/${process.env.REPO_OWNER}/${process.env.REPO_NAME}/statuses/${data['sha']}`;
+      const requestBodyMatcher = (body) => {
+         expect(body.state).eq('error');
+         expect(body.description).eq('foobar');
+         expect(body.context).eq(data['context']);
+         expect(body.target_url).empty;  // URL empty on errors
+         done();
+         return queue.pile.length === 0
+      };
+      scope.post(uri, requestBodyMatcher).reply(201);
+      queue.add(data)  // Create new job to process
+   });
+
+   after(function() {
+      delete queue.process;
+   });
 });

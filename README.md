@@ -1,12 +1,12 @@
 # MATLAB-ci
 [![Build Status](https://travis-ci.com/cortex-lab/matlab-ci.svg?branch=master)](https://travis-ci.com/cortex-lab/matlab-ci)
-[![Coverage](https://img.shields.io/badge/coverage-72.35-yellowgreen)](https://img.shields.io/badge/coverage-72.35-yellowgreen)
+[![Coverage](https://img.shields.io/badge/coverage-81.07-green)](https://img.shields.io/badge/coverage-72.35-yellowgreen)
 
 A small set of modules written in Node.js for running automated tests of MATLAB code in response to GitHub events.  Also submits code coverage to the Coveralls API.
 
 Currently unsupported:
 * Running tests on forked repositories
-* Testing multiple repos (unless they are submodules) 
+* Testing multiple repos (unless they are submodules)
 
 ## Getting Started
 

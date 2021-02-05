@@ -8,7 +8,7 @@
 ## Modified
 
  - removed old dependencies
- 
+ - support for short ids and branch names for all endpoints
  
 ## [2.1.0]
 
