@@ -5,6 +5,7 @@
   "main": "main.js",
   "scripts": {
     "test": "mocha -r dotenv/config ./test",
+    "coverage": "nyc npm run test",
     "start": "node -r dotenv/config main.js"
   },
   "repository": {
@@ -27,16 +28,16 @@
     "github-webhook-handler": "^1.0.0",
     "localtunnel": "^2.0.1",
     "shelljs": "^0.8.4",
-    "tree-kill": "^1.2.2"
+    "tree-kill": "^1.2.2",
+    "xml2js": "^0.4.23"
   },
   "devDependencies": {
     "chai": "^4.2.0",
-    "fake-timers": "^0.1.2",
     "mocha": "^8.2.0",
     "nock": "^13.0.4",
     "sinon": "^9.2.1",
     "supertest": "^6.0.1",
-    "xml2js": "^0.4.23"
+    "nyc": "^15.1.0"
   },
   "engines": {
     "node": ">=12.19.0"

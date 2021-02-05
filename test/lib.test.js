@@ -8,7 +8,7 @@ const sinon = require('sinon');
 const expect = require('chai').expect
 const lib = require('../lib');
 const queue = require('../lib').queue;
-// TODO update package test script and add cross_env dev dependency
+
 ids = [
     'cabe27e5c8b8cb7cdc4e152f1cf013a89adc7a71',
     '1c33a6e2ac7d7fc098105b21a702e104e09767cf',
@@ -57,6 +57,81 @@ describe('Test partial:', function() {
         expect(f0(2)).instanceOf(Function)
         expect(f0(2, 2)).eq(4)
     });
+});
+
+
+/**
+ * A test for the function getRepoPath
+ */
+describe('Test getRepoPath:', function() {
+    it('expect returned from env', function () {
+        let repoPath = lib.getRepoPath()
+        expect(repoPath).eq(process.env.REPO_PATH)
+    });
+});
+
+
+/**
+ * A test for the function compareCoverage.
+ * @todo add test for strict compare
+ */
+describe('Test compareCoverage:', function() {
+   var job;
+
+   beforeEach(function () {
+      queue.process(async (_job, _done) => {
+      });  // nop
+      queue.pile = [];
+      job = {
+         data: {
+            sha: null
+         }
+      };
+   })
+
+   it('expect coverage diff', function () {
+      // Test decrease in coverage
+      job.data.sha = ids[0];
+      job.data.base = ids[1];
+      lib.compareCoverage(job);
+      expect(job.data.status).eq('failure');
+      expect(job.data.description).contains('decreased');
+      expect(queue.pile).empty;
+
+      // Test increase in coverage
+      job.data.coverage = 95.56
+      lib.compareCoverage(job);
+      expect(job.data.status).eq('success');
+      expect(job.data.description).contains('increased');
+      expect(queue.pile).empty;
+   });
+
+   it('expect ReferenceError', function () {
+      job.data.base = null;
+      expect(() => lib.compareCoverage(job)).throws(ReferenceError);
+   });
+
+   it('expect fail status', function () {
+      job.data.sha = ids[0];
+      job.data.base = ids[3];  // errored
+      lib.compareCoverage(job);
+      expect(job.data.status).eq('failure');
+      expect(job.data.description).contains('incomplete');
+      expect(queue.pile).empty;
+   });
+
+   it('expect job added', function () {
+      // Test decrease in coverage
+      job.data.sha = ids[2];  // fake
+      job.data.base = ids[1];
+      job.data.context = 'coverage';
+      lib.compareCoverage(job);
+      expect(queue.pile.length).eq(2);
+      expect(job.data.skipPost).true;  // Job should be skipped to allow time for jobs to run
+      expect(queue.pile[0].data.sha).eq(ids[1])
+      expect(queue.pile[1].data.skipPost).false;
+      expect(queue.pile[1].data.context).eq(job.data.context)
+   });
 });
 
 

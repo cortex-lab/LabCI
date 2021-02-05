@@ -330,7 +330,7 @@ function compareCoverage(job) {
   }
   log('Comparing coverage for %g -> %g', job.data.sha, job.data.base);
   var records;
-  if (!job.coverage) {
+  if (!job.data.coverage) {
     log('No coverage in job data; loading from records');
     records = loadTestRecords([job.data.sha, job.data.base]);
     // Filter duplicates just in case
@@ -341,7 +341,7 @@ function compareCoverage(job) {
     records = [curr, loadTestRecords(job.data.base)];
   }
   log('The following records were found: %O', records);
-  const has_coverage = records.every(o => (typeof o.coverage !== 'undefined' && o.coverage > 0));
+  const hasCoverage = records.every(o => (o.coverage > 0));
 
   // Check if any errored or failed to update coverage
   if (records.filter(o => o.status === 'error').length > 0) {
@@ -350,7 +350,7 @@ function compareCoverage(job) {
     job.data.description = 'Failed to determine coverage as tests incomplete due to errors';
 
   // Both records present and they have coverage
-  } else if (records.length === 2 && has_coverage) {
+  } else if (records.length === 2 && hasCoverage) {
     log('Calculating coverage difference');
     // Ensure first record is for head commit
     if (records[0].commit === job.data.base) { records.reverse() }

@@ -118,6 +118,45 @@ srv.post('/github', async (req, res, next) => {
 ///////////////////// STATUS DETAILS /////////////////////
 
 /**
+ * Serve the test records for requested commit id.  Returns JSON data for the commit.
+ * @param {string} id - A commit SHA of any length, or branch name.
+ * @param {boolean|null} [isBranch] - If true, id treated as a branch name. Inferred from id by default.
+ * @param {string} [module] - (Sub)module name. REPO_NAME by default.
+ * @return {Promise} - Resolved to full commit SHA.
+ */
+function fetchCommit(id, isBranch=null, module) {
+   isBranch = isBranch === null ? !lib.isSHA(id) : isBranch
+   const data = {
+      owner: process.env['REPO_OWNER'],
+      repo: module || process.env.REPO_NAME,
+      id: id
+   };
+   let endpoint = `GET /repos/:owner/:repo/${isBranch ? 'branches': 'commits'}/:id`;
+   return request(endpoint, data).then(response => {
+      return isBranch ? response.data.commit.sha : response.data.sha;
+   });
+}
+
+/**
+ * Parse the short SHA or branch name and redirect to static reports directory.
+ */
+srv.get(`/coverage/:id`, (req, res) => {
+   let id = lib.shortID(req.params.id);
+   let isSHA = (req.query.branch || !lib.isSHA(req.params.id)) === false;
+   console.log('Request for test coverage for ' + (isSHA? `commit ${id}` : `branch ${req.params.id}`));
+   fetchCommit(req.params.id, !isSHA, req.query.module)
+      .then(id => {
+         log('Commit ID found: %s', id);
+         res.redirect(301, `/${ENDPOINT}/coverage/${id}`);
+      })
+      .catch(err => {
+         log('%s', err.message);
+    	   res.statusCode = 404;
+    	   res.send(`Coverage for ${isSHA? 'commit' : 'branch'} ${req.params.id} not found`);
+      });
+})
+
+/**
  * Serve the reports tree as a static resource; allows users to inspect the HTML coverage reports.
  * We will add a link to the reports in the check details.
  */
@@ -130,15 +169,8 @@ srv.get(`/${ENDPOINT}/records/:id`, function (req, res) {
    let id = lib.shortID(req.params.id);
    let isSHA = (req.query.branch || !lib.isSHA(req.params.id)) === false;
    console.log('Request for test records for ' + (isSHA? `commit ${id}` : `branch ${req.params.id}`));
-   const data = {
-      owner: process.env['REPO_OWNER'],
-      repo: req.query.module || process.env.REPO_NAME,
-      id: req.params.id
-   };
-   let endpoint = `GET /repos/:owner/:repo/${isSHA ? 'commits' : 'branches'}/:id`;
-   request(endpoint, data)
-      .then(response => {
-         let id = isSHA ? response.data.sha : response.data.commit.sha;
+   fetchCommit(req.params.id, !isSHA, req.query.module)
+      .then(id => {
          log('Commit ID found: %s', id);
          let record = lib.loadTestRecords(id);
          if (record) {
@@ -146,7 +178,7 @@ srv.get(`/${ENDPOINT}/records/:id`, function (req, res) {
             res.end(JSON.stringify(record));
          } else {
             res.statusCode = 404;
-    	      res.send(`${isSHA? 'Commit' : 'Branch'} ${req.params.id} not recognized.`);
+    	      res.send(`${isSHA? 'Commit' : 'Branch'} ${id} not recognized.`);
          }
       })
       .catch(err => {
@@ -163,27 +195,35 @@ srv.get(`/${ENDPOINT}/records/:id`, function (req, res) {
  */
 srv.get(`/${ENDPOINT}/:id`, function (req, res) {
    let id = lib.shortID(req.params.id);
-   let isSHA = lib.isSHA(req.params.id);
    let log_only = (req.query.type || '').startsWith('log')
+   let isSHA = (req.query.branch || !lib.isSHA(req.params.id)) === false;
    console.log(
       `Request for test ${log_only ? 'log' : 'stdout'} for ` +
       (isSHA? `commit ${id}` : `branch ${req.params.id}`)
    );
-   let filename = log_only? `test_output.log` : `std_output-${id}.log`;
-   let logFile = path.join(config.dataPath, 'reports', req.params.id, filename);
-   fs.readFile(logFile, 'utf8', (err, data) => {
-      if (err) {
+   fetchCommit(req.params.id, !isSHA, req.query.module)
+      .then(id => {
+         let filename = log_only? `test_output.log` : `std_output-${lib.shortID(req.params.id)}.log`;
+         let logFile = path.join(config.dataPath, 'reports', id, filename);
+         fs.readFile(logFile, 'utf8', (err, data) => {
+            if (err) {
+               log('%s', err.message);
+               res.statusCode = 404;
+               res.send(`Record for ${isSHA? 'commit' : 'branch'} ${id} not found`);
+            } else {
+               res.statusCode = 200;
+               // Wrap in HTML tags so that the formatting is a little nicer.
+               let preText = '<html lang="en-GB"><body><pre>';
+               let postText = '</pre></body></html>';
+               res.send(preText + data + postText);
+            }
+         });
+      })
+      .catch(err => {
          log('%s', err.message);
     	   res.statusCode = 404;
     	   res.send(`Record for ${isSHA? 'commit' : 'branch'} ${req.params.id} not found`);
-      } else {
-    	   res.statusCode = 200;
-    	   // Wrap in HTML tags so that the formatting is a little nicer.
-    	   let preText = '<html lang="en-GB"><body><pre>';
-    	   let postText = '</pre></body></html>';
-         res.send(preText + data + postText);
-      }
-   });
+      });
 });
 
 
@@ -367,7 +407,7 @@ async function updateStatus(data, targetURL = '') {
    await setAccessToken();
    return request("POST /repos/:owner/:repo/statuses/:sha", {
       owner: data['owner'] || process.env['REPO_OWNER'],
-      repo: data['repo'],
+      repo: data['repo'] || process.env['REPO_NAME'],
       headers: {
          authorization: `token ${token['token']}`,
          accept: "application/vnd.github.machine-man-preview+json"
@@ -375,7 +415,7 @@ async function updateStatus(data, targetURL = '') {
       sha: data['sha'],
       state: data['status'],
       target_url: targetURL,
-      description: data['description'].substring(0, maxN),
+      description: (data['description'] || '').substring(0, maxN),
       context: data['context']
     });
 }
@@ -547,5 +587,5 @@ queue.on('finish', (err, job) => { // On job end post result to API
 });
 
 module.exports = {
-   updateStatus, srv, handler, setAccessToken, prepareEnv, runTests, eventCallback
+   updateStatus, srv, handler, setAccessToken, prepareEnv, runTests, eventCallback, fetchCommit
 }
