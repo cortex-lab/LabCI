@@ -242,7 +242,7 @@ srv.get('/:badge/:repo/:branch', async (req, res) => {
    // Find head commit of branch
    return request('GET /repos/:owner/:repo/git/refs/heads/:branch', data)
       .then(response => {
-         data['context'] = req.params.badge;
+         data['context'] = req.params.badge === 'status' ? 'build' : req.params.badge;
          data['sha'] = response.data.object.sha;
          data['force'] = req.query.force === '' || lib.strToBool(req.query.force);
          console.log(`Request for ${data.branch} ${data.context}`)

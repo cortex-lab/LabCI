@@ -397,14 +397,14 @@ function compareCoverage(job) {
  * Get the coverage results and build status data for the shields.io coverage badge API.
  * If test results don't exist, a new job is added to the queue and the message is set to 'pending'
  * @param {Object} data - An object with the keys 'sha', 'repo', 'owner' and 'context'.
- * 'context' must be 'coverage' or 'status'.
+ * 'context' must be 'coverage', 'build', or 'tests'.
  */
 function getBadgeData(data) {
    let id = data.sha;
    if (!id) {
       throw new ReferenceError('Invalid "sha" field in input data')
    }
-   var report = {'schemaVersion': 1, 'label': data.context === 'status'? 'build' : 'coverage'};
+   var report = {'schemaVersion': 1, 'label': data.context};
    // Try to load coverage record
    let record = data.force? [] : loadTestRecords(id);
    // If no record found
@@ -421,7 +421,7 @@ function getBadgeData(data) {
    } else {
       record = Array.isArray(record) ? record.pop() : record;  // in case of duplicates, take last
       switch (data.context) {
-         case 'status':
+         case 'build':
             if (record['status'] === 'error') {
                report['message'] = 'unknown';
                report['color'] = 'orange';
@@ -429,6 +429,25 @@ function getBadgeData(data) {
                report['message'] = (record['status'] === 'success' ? 'passing' : 'failing');
                report['color'] = (record['status'] === 'success' ? 'brightgreen' : 'red');
             }
+            break;
+         case 'tests':
+            if (record['status'] === 'error') {
+               report['message'] = 'unknown';
+               report['color'] = 'orange';
+            } else {
+               if (record['statistics']) {
+                  let pass = record['statistics']['passed'];
+                  let fail = record['statistics']['failed'] + record['statistics']['errored'];
+                  let skip = record['statistics']['skipped'];
+                  report['message'] = `${pass} passed`;
+                  if (fail > 0) { report['message'] += `, ${fail} failed`; }
+                  if (skip > 0) { report['message'] += `, ${skip} skipped`; }
+               } else {
+                  report['message'] = (record['status'] === 'success' ? 'passed' : 'failed')
+               }
+               report['color'] = (record['status'] === 'success' ? 'brightgreen' : 'red');
+            }
+
             break;
          case 'coverage':
             if (record['status'] === 'error' || !record['coverage']) {
