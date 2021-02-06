@@ -203,7 +203,7 @@ srv.get(`/${ENDPOINT}/:id`, function (req, res) {
    );
    fetchCommit(req.params.id, !isSHA, req.query.module)
       .then(id => {
-         let filename = log_only? `test_output.log` : `std_output-${lib.shortID(req.params.id)}.log`;
+         let filename = log_only? `test_output.log` : `std_output-${lib.shortID(id)}.log`;
          let logFile = path.join(config.dataPath, 'reports', id, filename);
          fs.readFile(logFile, 'utf8', (err, data) => {
             if (err) {
