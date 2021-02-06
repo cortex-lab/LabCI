@@ -32,11 +32,6 @@ handler.on('*', evt => eventCallback(evt));
 queue.on('error', _ => {});
 
 
-// Log handler errors
-handler.on('error', function (err) {
-  console.error('Error:', err.message);
-})
-
 // Log any unhandled errors
 process.on('unhandledRejection', (reason, p) => {
   console.log('Unhandled Rejection at: Promise', p, 'reason:', reason);
