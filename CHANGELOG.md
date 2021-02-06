@@ -1,6 +1,13 @@
 # Changelog
 
-## [Latest](https://github.com/cortex-lab/matlab-ci/commits/master) [2.2.0]
+## [Latest](https://github.com/cortex-lab/matlab-ci/commits/master) [2.2.1]
+
+## Modified
+
+ - fix error where github even incorrectly rejected
+ - fix bug incorrect log name when endpoint called with branch name
+ 
+## [2.2.0]
 
 ## Added
  - nyc dependency for manual coverage of matlab-ci

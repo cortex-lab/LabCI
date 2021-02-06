@@ -253,11 +253,11 @@ describe("Github event handler callback", () => {
               },
            });
       await setAccessToken();
-      scope.done();
+      nock.cleanAll()
    }
 
-   before(function (done) {
-      setToken().then(() => done());
+   before(async function () {
+      await setToken();
       scope = nock('https://api.github.com', {
          reqheaders: {
             accept: 'application/vnd.github.machine-man-preview+json',
@@ -838,6 +838,23 @@ describe('srv github/', () => {
             done()
          });
    });
+
+   it('expect token set', (done) => {
+      // Although the blob signature won't match, we can at least test that setAccessToken was called
+      request(srv)
+         .post(`/github`)  // trailing slash essential
+         .set({
+            'X-GitHub-Event': 'push',
+            'x-github-hook-installation-target-id': process.env.GITHUB_APP_IDENTIFIER,
+            'X-Hub-Signature': {'sha': SHA},
+            'X-GitHub-Delivery': '72d3162e-cc78-11e3-81ab-4c9367dc0958'
+         })
+         .end(function (err) {
+            expect(scope.pendingMocks().length).lt(2);  // setAccessToken was called
+            err ? done(err) : done();
+         });
+   });
+
 
    after(function () {
       clock.restore();
