@@ -54,8 +54,8 @@ describe('Test partial:', function() {
     it('expect curried function', function () {
         let f = (a, b) => { return a + b; };
         let f0 = lib.partial(f);
-        expect(f0(2)).instanceOf(Function)
-        expect(f0(2, 2)).eq(4)
+        expect(f0(2)).instanceOf(Function);
+        expect(f0(2, 2)).eq(4);
     });
 });
 
@@ -65,8 +65,28 @@ describe('Test partial:', function() {
  */
 describe('Test getRepoPath:', function() {
     it('expect returned from env', function () {
-        let repoPath = lib.getRepoPath()
-        expect(repoPath).eq(process.env.REPO_PATH)
+        let repoPath = lib.getRepoPath();
+        expect(repoPath).eq(process.env.REPO_PATH);
+    });
+});
+
+
+/**
+ * A test for the function addParam
+ */
+describe('Test addParam:', function() {
+    it('expect deals with slash', function () {
+        const url = 'https://example.com';
+        const param = 'param=value';
+        expect(lib.addParam(url, param)).eq(lib.addParam(url + '/', param));
+    });
+
+    it('expect handles multiple params', function () {
+        const url = 'https://example.com';
+        const param1 = 'param=value';
+        const param2 = 'par=val';
+        const expected = 'https://example.com/?param=value&par=val';
+        expect(lib.addParam(url, param1, param2)).eq(expected);
     });
 });
 

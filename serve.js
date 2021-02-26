@@ -405,6 +405,9 @@ async function updateStatus(data, targetURL = '') {
    debug('Updating status to "%s" for %s @ %g',
       data['status'], (data['context'] || '').split('/').pop(), data['sha']);
    await setAccessToken();
+   if (targetURL && data['repo'] !== process.env['REPO_NAME']) {
+      targetURL = lib.addParam(targetURL, 'module=' + data['repo']);
+   }
    return request("POST /repos/:owner/:repo/statuses/:sha", {
       owner: data['owner'] || process.env['REPO_OWNER'],
       repo: data['repo'] || process.env['REPO_NAME'],

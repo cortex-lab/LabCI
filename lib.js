@@ -149,7 +149,7 @@ function updateJobFromRecord(job) {
     job.data['status'] = rec['status'];
     job.data['description'] = rec['description'];
     job.data['coverage'] = ('coverage' in rec)? rec['coverage'] : null;
-    if (!job.data['coverage']) {
+    if (!job.data['coverage'] && rec['status'] !== 'error') {
        log('Coverage missing, computing from XML');
        computeCoverage(job);  // Attempt to load from XML
     } else if ((job.data.context || '').startsWith('coverage')) {
@@ -174,6 +174,22 @@ function partial(func) {
          }
       }
    };
+}
+
+
+/**
+ * Append URL parameters to a URL.
+ * @param {String} url - The URL to append paramters to.
+ * @param {String} args - One or more URL parameters to append, e.g. 'param=value'
+ */
+function addParam(url, ...args) {
+   if (url.indexOf('&') === -1 && !url.endsWith('/')) {
+      url += '/'
+   }
+   for (param of args) {
+      url += (/\?/g.test(url)? '&' : '?') + param;
+   }
+   return url
 }
 
 
@@ -477,5 +493,5 @@ class APIError extends Error {
 module.exports = {
    ensureArray, loadTestRecords, compareCoverage, computeCoverage, getBadgeData, log, shortID,
    openTunnel, APIError, queue, partial, startJobTimer, updateJobFromRecord, shortCircuit, isSHA,
-   fullpath, strToBool, saveTestRecords, listSubmodules, getRepoPath
+   fullpath, strToBool, saveTestRecords, listSubmodules, getRepoPath, addParam
 }
