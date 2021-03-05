@@ -271,7 +271,7 @@ function runTests(job) {
    let fcn = lib.fullpath(config.test_function);
    debug('starting test child process %s', fcn);
    let ops = config.shell? {'shell': config.shell} : {};
-   const runTests = cp.execFile(fcn, [sha, repoPath, config.dataPath], ops, (error, stdout, stderr) => {
+   const runTests = cp.spawn(fcn, [sha, repoPath, config.dataPath], ops, (error, stdout, stderr) => {
       debug('clearing job timer');
       clearTimeout(timer);
       delete job.data.process;
@@ -314,8 +314,10 @@ function runTests(job) {
 
    // Write output to file
    runTests.stdout.pipe(process.stdout);  // Pipe to display
+   runTests.stderr.pipe(process.stderr);
    let logDump = fs.createWriteStream(logName, { flags: 'a' });
-   runTests.stdout.pipe(logDump);
+   runTests.stdout.pipe(logDump);  // Pipe to file
+   runTests.stderr.pipe(logDump);
    runTests.on('exit', () => { logDump.close(); });
    return runTests;
 }
@@ -347,10 +349,12 @@ function prepareEnv(job, callback) {
             callback(job);
          });
          prepEnv.stdout.pipe(process.stdout);
+         prepEnv.stderr.pipe(process.stderr);
          fs.mkdir(path.join(logDir), { recursive: true }, (err) => {
             if (err) throw err;
             let logDump = fs.createWriteStream(logName, { flags: 'w' });
             prepEnv.stdout.pipe(logDump);
+            prepEnv.stderr.pipe(logDump);
             prepEnv.on('exit', () => { logDump.close(); });
          });
          return prepEnv;
