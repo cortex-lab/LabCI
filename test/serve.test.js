@@ -10,9 +10,7 @@ const assert = require('chai').assert;
 const appAuth = require("@octokit/auth-app");
 
 const APIError = require('../lib').APIError;
-const lib = require('../lib');
-const { updateStatus, setAccessToken, eventCallback, srv, prepareEnv, runTests, fetchCommit} =
-   require('../serve');
+const { updateStatus, setAccessToken, eventCallback, srv, fetchCommit, buildRoutine} = require('../serve');
 const queue = require('../lib').queue;
 const config = require('../config/config').settings;
 const { stdErr, token } = require('./fixtures/static');
@@ -134,9 +132,9 @@ describe('setAccessToken', () => {
       });
    });
 
-   after(async function() {
+   after(function(done) {
       clock.restore();
-      await resetToken();
+      resetToken().then(done);
    })
 });
 
@@ -144,7 +142,7 @@ describe('setAccessToken', () => {
 /**
  * This tests 'updateStatus' which handles updating the GitHub statues.
  */
-describe("updateStatus", () => {
+describe('updateStatus', () => {
    var scope;  // Our server mock
    var spy;  // A spy for authentication
    var data;  // Some job data to update the status with
@@ -183,10 +181,10 @@ describe("updateStatus", () => {
       data.description = 'Lorem ipsum '.repeat(13);  // Check max char
       data.context = 'ci/test';
       const uri = `/repos/${data['owner']}/${data['repo']}/statuses/${data['sha']}`;
-      const url = `${process.env.WEBHOOK_PROXY_URL}/${ENDPOINT}/${data.sha}`;  // target URL
+      const url = `${process.env.WEBHOOK_PROXY_URL}/${ENDPOINT}/${data.sha}`;
       const requestBodyMatcher = (body) => {
          return body.state === data.status &&
-                body.target_url === url &&
+                body.target_url === url + `/?module=${data['repo']}` &&
                 body.description.length <= 140 &&
                 body.context === data.context;
       };
@@ -231,7 +229,7 @@ describe("updateStatus", () => {
  * callback to check whether the event is configured in the settings and if so, should update the
  * check status to pending for each context, and add each job to the queue.
  */
-describe("Github event handler callback", () => {
+describe('Github event handler callback', () => {
    var scope;  // Our server mock
    var evt;  // A payload event loaded from fixtures
    var sandbox;  // Sandbox for spying on queue
@@ -287,6 +285,7 @@ describe("Github event handler callback", () => {
          expect(data.force).not.true;  // Check force is false (the previous job will save its results)
          expect(data.owner).eq(pr.head.repo.owner.login);  // Check repo owner set
          expect(data.repo).eq(pr.head.repo.name);  // Check repo name set
+         expect(data.routine).eq(config['routines']['*']);  // Check routine
 
          expect(data.context.startsWith(context.pop())).true;
          sandbox.assert.calledTwice(queue.add);
@@ -364,13 +363,18 @@ describe('shields callback', () => {
       };
    });
 
+   after(function () {
+      delete queue.process;
+      queue.pile = [];  // ensure queue is empty
+   });
+
    it('expect coverage response', (done) => {
       // Set up response to GitHub API query
-      // GET /repos/:owner/:repo/git/refs/heads/:branch
-      scope.get(`/repos/${info.owner}/${info.repo}/git/refs/heads/${info.branch}`)
+      // GET /repos/:owner/:repo/branches/:branch
+      scope.get(`/repos/${info.owner}/${info.repo}/branches/${info.branch}`)
            .reply(200, {
               ref: `ref/heads/${info.branch}`,
-              object: {
+              commit: {
                  sha: SHA
               }
            });
@@ -394,7 +398,7 @@ describe('shields callback', () => {
 
    it('expect errors', (done) => {
       // Set up response to GitHub API query
-      scope.get(`/repos/${info.owner}/${info.repo}/git/refs/heads/${info.branch}`).reply(404);
+      scope.get(`/repos/${info.owner}/${info.repo}/branches/${info.branch}`).reply(404);
 
       request(srv)
          .get(`/coverage/${info.repo}/${info.branch}`)
@@ -406,19 +410,28 @@ describe('shields callback', () => {
          });
    });
 
-   it('expect job forced', (done) => {
+   // In order for this to work we need to clear the routine defaults from the settings
+   xit('expect context not found', done => {
+      request(srv)
+         .get(`/unknown/${info.repo}/${info.branch}`)
+         .expect(404)
+         .end(function (err) {
+            scope.isDone();
+            done(err);
+         });
+   });
+
+   it('expect job forced', done => {
       // Set up response to GitHub API query
       // GET /repos/:owner/:repo/git/refs/heads/:branch
-      scope.get(`/repos/${info.owner}/${info.repo}/git/refs/heads/${info.branch}`)
+      scope.get(`/repos/${info.owner}/${info.repo}/commits/${SHA}`)
            .reply(200, {
-              ref: `ref/heads/${info.branch}`,
-              object: {
-                 sha: SHA
-              }
+              ref: `ref/heads/${SHA}`,
+              sha: SHA
            });
 
       request(srv)
-         .get(`/coverage/${info.repo}/${info.branch}?force=1`)
+         .get(`/coverage/${info.repo}/${SHA}?force=1`)
          .expect('Content-Type', 'application/json')
          .expect(200)
          .end(function (err, res) {
@@ -662,9 +675,10 @@ describe('coverage endpoint', () => {
          });
    });
 
-   after(function() {
+   after(done => {
       fs.rmdir(path.join(config.dataPath, 'reports'), {recursive: true}, err => {
          if (err) throw err;
+         done()
       })
 
    })
@@ -672,105 +686,164 @@ describe('coverage endpoint', () => {
 
 
 /**
- * This tests the runtests and prepareEnv functions.
- * @todo Check for log close on exit
+ * This tests the buildRoutine function.
  */
 describe('running tests', () => {
    var sandbox;  // Sandbox for spying on queue
-   var stub;  // Main fileExec stub
+   var spawnStub;  // Main fileExec stub
+   var execEvent;
+   var job;
+
+   before(() => {
+      sandbox = sinon.createSandbox();
+   });
 
    beforeEach(function () {
-      queue.process(async (_job, _done) => {})  // nop
-      sandbox = sinon.createSandbox()
-      stub = sandbox.stub(cp, 'execFile');
-      sandbox.stub(fs, 'createWriteStream');
-      sandbox.stub(fs, 'mkdir').callsArg(2);
+      spawnStub = sandbox.stub(cp, 'spawn');
       execEvent = new events.EventEmitter();
-      execEvent.stdout = new events.EventEmitter();
+      execEvent.stdout = execEvent.stderr = new events.EventEmitter();
       execEvent.stdout.pipe = sandbox.spy();
-      stub.returns(execEvent);
+      job = {
+         id: 123,
+         data: {sha: SHA},
+         done: () => {}
+      };
    });
 
-   it('test prepareEnv', async () => {
-      const callback = sandbox.spy();
-      stub.callsArgAsync(3, null, 'preparing', '');
-      const job = {data: {sha: SHA}};
-      await prepareEnv(job, callback);
+   it('expect default routine', fin => {
+      // Create a job field with no routine field
+      job.done = validate;
       let log = path.join(config.dataPath, 'reports', SHA, 'std_output-cabe27e.log');
-      let fn = path.resolve(path.join(__dirname, '..', 'prep_env.BAT'));
-      stub.calledWith(fn, [SHA, config.repo, config.dataPath]);
-      expect(callback.calledOnce).true;
-      expect(callback.calledOnceWithExactly(job)).true;
-      sandbox.assert.calledWith(fs.createWriteStream, log);
-   });
-
-   it('test prepareEnv with error', async (done) => {
-      stub.callsArgWith(3, {code: 'ENOENT'}, 'preparing', '');
-      const job = {
-         data: {sha: SHA},
-         done: (err) => {
-            expect(err).instanceOf(Error);
-            expect(err.message).to.have.string('not found');
-            done();
+      let tasks = config['routines']['*'].map(x => path.resolve(path.join(__dirname, '..', x)));
+      spawnStub.callsFake(() => {
+         setImmediate(() => { execEvent.emit('exit', 0, null); });
+         setImmediate(() => { execEvent.emit('close', 0, null); });
+         return execEvent;
+      });
+      buildRoutine(job);
+      function validate(err) {
+         for (let fn of tasks) {
+            spawnStub.calledWith(fn, [SHA, config.repo, config.dataPath]);
          }
-      };
-      prepareEnv(job);
+         expect(spawnStub.calledTwice).true;
+         expect(err).undefined;
+         expect(fs.existsSync(log)).true;
+         fin();
+      }
    });
 
-   it('test runtests', async () => {
-      const callback = sandbox.spy();
-      stub.callsArgWith(3, null, 'running tests', '');
-      const job = {
-         data: {sha: SHA},
-         done: callback
-      };
-      await runTests(job);
-      const log = path.join(config.dataPath, 'reports', SHA, 'std_output-cabe27e.log');
-      sandbox.assert.calledWith(fs.createWriteStream, log, { flags: 'a' });
-      const fn = path.resolve(path.join(__dirname, '..', 'run_tests.BAT'));
-      stub.calledWith(fn, [SHA, config.repo, config.dataPath]);
-      expect(callback.calledOnce).true;
-      expect(callback.calledOnceWithExactly()).true;
+   it('test missing file error', fin => {
+      job.done = validate;
+
+      // Raise a file not found error
+      spawnStub.callsFake(() => {
+         const err = new Error('ENOENT');
+         err.code = 'ENOENT';
+         err.path = config['routines']['*'][0];
+         setImmediate(() => { execEvent.emit('error', err, null); });
+         return execEvent;
+      });
+      sandbox.stub(fs.promises, 'writeFile');
+      sandbox.stub(fs.promises, 'readFile').resolves('[]');
+      buildRoutine(job).finally(fin);
+      function validate(err) {
+         expect(spawnStub.calledOnce).true;
+         expect(err.message).matches(/File ".*?" not found/);
+      }
    });
 
-   it('runtests parses MATLAB error', (done) => {
+   it('runtests parses MATLAB error', (fin) => {
       var err;
       const errmsg = 'Error in MATLAB_function line 23';
-      stub.callsArgWith(3, {code: 1}, 'running tests', errmsg);
-      sandbox.stub(fs.promises, 'writeFile').callsFake(() => {
-         sandbox.assert.calledWith(fs.promises.writeFile, config.dbFile);
-         expect(err).instanceOf(Error);
+      job.done = (e) => { err = e; };
+
+      // Exit with a MATLAB error
+      spawnStub.callsFake(() => {
+         setImmediate(() => { execEvent.stderr.emit('data', errmsg) });
+         setImmediate(() => { execEvent.emit('exit', 1, null); });
+         setImmediate(() => { execEvent.emit('close', 1, null); });
+         return execEvent;
+      });
+      sandbox.stub(fs.promises, 'readFile').resolves('[]');
+      sandbox.stub(fs.promises, 'writeFile').callsFake((db_path, rec) => {
+         expect(db_path).eq(config.dbFile);
+         expect(rec).contains(errmsg);
+         expect(spawnStub.calledOnce).true;
          expect(err.message).to.have.string(errmsg);
-         done();
+         fin();
       })
-      const job = {
-         data: {sha: SHA},
-         done: (e) => { err = e; }
-      };
-      runTests(job);
+      buildRoutine(job);
    });
 
-   it('runtests parses Python error', (done) => {
+   it('runtests parses Python error', (fin) => {
       var err;
-      stub.callsArgWith(3, {code: 1}, 'running tests', stdErr);
-      sandbox.stub(fs.promises, 'writeFile').callsFake(() => {
-         sandbox.assert.calledWith(fs.promises.writeFile, config.dbFile);
-         expect(err).instanceOf(Error);
-         let errmsg = 'FileNotFoundError: Invalid data root folder E:\\FlatIron\\integration';
-         expect(err.message.startsWith(errmsg)).true;
-         done();
+      job.done = (e) => { err = e; };
+
+      // Exit with a Python error
+      spawnStub.callsFake(() => {
+         setImmediate(() => { execEvent.stderr.emit('data', stdErr) });
+         setImmediate(() => { execEvent.emit('exit', 1, null); });
+         setImmediate(() => { execEvent.emit('close', 1, null); });
+         return execEvent;
+      });
+      sandbox.stub(fs.promises, 'readFile').resolves('[]');
+      sandbox.stub(fs.promises, 'writeFile').callsFake((db_path, rec) => {
+         expect(db_path).eq(config.dbFile);
+         let errmsg = 'FileNotFoundError: Invalid data root folder ';
+         expect(rec).contains(errmsg);
+         expect(spawnStub.calledOnce).true;
+         expect(err.message).to.have.string(errmsg);
+         fin();
       })
-      const job = {
-         data: {sha: SHA},
-         done: (e) => { err = e; }
-      };
-      runTests(job);
+      buildRoutine(job);
    });
 
-   afterEach(function () {
-      queue.pile = [];
-      sandbox.verifyAndRestore();
+   it('should open and close log', fin => {
+      const logSpy = {
+         close: sandbox.stub(),
+         on: () => {}
+      }
+      sandbox.stub(fs, 'createWriteStream').returns(logSpy);
+      sandbox.stub(fs, 'mkdir');
+      logSpy.close.callsFake(fin);
+      spawnStub.callsFake(() => {
+         setImmediate(() => { execEvent.emit('exit', 0, null); });
+         setImmediate(() => { execEvent.emit('close', 0, null); });
+         return execEvent;
+      });
+      buildRoutine(job);
    });
+
+   it('expect loads test record', fin => {
+      queue.process(buildRoutine);
+      queue.on('error', _ => {});
+      function validate (err, job) {
+         expect(err).undefined;
+         expect('process' in job.data).false;
+         expect(job.data.status).eq('failure');
+         expect(job.data.coverage).approximately(22.1969, 0.001);
+         fin();
+      }
+      sandbox.stub(queue._events, 'finish').value([validate]);
+      spawnStub.callsFake(() => {
+         setImmediate(() => { execEvent.emit('exit', 0, null); });
+         setImmediate(() => { execEvent.emit('close', 0, null); });
+         return execEvent;
+      });
+      queue.add({sha: SHA})
+   });
+
+   afterEach(function (done) {
+      queue.pile = [];
+      delete queue.process;
+      sandbox.verifyAndRestore();
+      const logDir = path.join(config.dataPath, 'reports');
+      fs.rmdir(logDir, {recursive: true}, err => {
+         if (err) throw err;
+         done()
+      });
+   });
+
 });
 
 
@@ -839,6 +912,9 @@ describe('srv github/', () => {
          });
    });
 
+   /**
+    * This is already covered by the setAccessToken test...
+    */
    it('expect token set', (done) => {
       // Although the blob signature won't match, we can at least test that setAccessToken was called
       request(srv)
@@ -855,6 +931,9 @@ describe('srv github/', () => {
          });
    });
 
+   afterEach(function () {
+      nock.cleanAll()
+   });
 
    after(function () {
       clock.restore();
@@ -897,10 +976,10 @@ describe('queue finish callback', () => {
          expect(body.context).eq(data['context']);
          expect(body.target_url).empty;  // URL empty on errors
          done();
-         return queue.pile.length === 0
+         return queue.pile.length === 0;
       };
       scope.post(uri, requestBodyMatcher).reply(201);
-      queue.add(data)  // Create new job to process
+      queue.add(data);  // Create new job to process
    });
 
    after(function() {

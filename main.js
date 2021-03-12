@@ -4,10 +4,9 @@
  * @todo save auxiliary configuration into a separate config file
  * @todo add abort option for when new commits added
  * @todo rename context to description and use context to track posts
- * @todo fix intentions
  */
 const { openTunnel, queue, shortCircuit} = require('./lib');
-const { srv, handler, eventCallback, runTests, prepareEnv} = require('./serve');
+const { srv, handler, eventCallback, buildRoutine} = require('./serve');
 const config = require("./config/config").settings;
 
 
@@ -15,8 +14,7 @@ const config = require("./config/config").settings;
  * Build queue processing pipeline.  The shortCircuit call checks whether the results may be loaded from file,
  * bypassing the test function.
  */
-const run = (job) => { prepareEnv(job, runTests); };
-queue.process((job) => { shortCircuit(job, run); });
+queue.process((job) => { shortCircuit(job, buildRoutine); });
 
 // NB: Only the supported events make it this far (i.e. push and pull requests)
 handler.on('*', evt => eventCallback(evt));

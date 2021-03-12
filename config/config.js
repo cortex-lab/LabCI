@@ -34,8 +34,6 @@ defaults = {
 testing = {
     listen_port: 3000,
     timeout: 60000,
-    setup_function: 'prep_env.BAT',
-    test_function: "run_tests.BAT",
     events: {
         push: {
             checks: "continuous-integration",
@@ -46,6 +44,9 @@ testing = {
             actions: ["opened", "synchronize"],
             ref_ignore: ["documentation", "gh-pages"]
         }
+    },
+    routines: {
+       '*': ["prep_env.BAT", "run_tests.BAT"]
     },
     dataPath: fixtureDir,
     dbFile: path.join(fixtureDir, dbFilename)  // cache of test results

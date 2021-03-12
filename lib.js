@@ -74,6 +74,22 @@ function strToBool(s) { return /^\s*(true|1|on)\s*$/i.test(s); }
 
 
 /**
+ * Get the routine for a given context from the settings JSON.
+ * @param {String} context - The context.
+ * @returns {Array} The test routine, i.e. an array of functions/scripts to call
+ */
+function context2routine(context) {
+   const opts = ('routines' in config)? config['routines'] : null;
+   if (!opts) { return null; }
+   let routine = ('*' in opts)? opts['*'] : [];
+   if (context in opts) {
+      routine += ensureArray(opts[context]);
+   }
+   return routine;
+}
+
+
+/**
  * Load test results from .db.json file.  NB: Size and order of returned records not guaranteed
  * @param {string, array} id - Commit SHA.
  */
@@ -105,7 +121,7 @@ async function saveTestRecords(r) {
       throw new APIError('"commit" not in record(s)');
    }
    try {
-      let data = await fs.promises.readFile(config.dbFile, 'utf8')
+      let data = await fs.promises.readFile(config.dbFile, 'utf8');
       obj = ensureArray(JSON.parse(data));
       let ids = r.map(x => x.commit);
       let records = obj.filter(o => ids.indexOf(o.commit) >= 0);
@@ -179,7 +195,7 @@ function partial(func) {
 
 /**
  * Append URL parameters to a URL.
- * @param {String} url - The URL to append paramters to.
+ * @param {String} url - The URL to append parameters to.
  * @param {String} args - One or more URL parameters to append, e.g. 'param=value'
  */
 function addParam(url, ...args) {
@@ -196,7 +212,7 @@ function addParam(url, ...args) {
 /**
  * Check if job already has record, if so, update from record and finish, otherwise call tests function.
  * @param {Object} job - Job object which is being processed.
- * @param {Function} func - The tests function to run, e.g. `runTests`.
+ * @param {Function} func - The tests function to run, e.g. `buildRoutine`.
  */
 function shortCircuit(job, func=null) {
    // job.data contains the custom data passed when the job was created
@@ -493,5 +509,5 @@ class APIError extends Error {
 module.exports = {
    ensureArray, loadTestRecords, compareCoverage, computeCoverage, getBadgeData, log, shortID,
    openTunnel, APIError, queue, partial, startJobTimer, updateJobFromRecord, shortCircuit, isSHA,
-   fullpath, strToBool, saveTestRecords, listSubmodules, getRepoPath, addParam
+   fullpath, strToBool, saveTestRecords, listSubmodules, getRepoPath, addParam, context2routine
 }

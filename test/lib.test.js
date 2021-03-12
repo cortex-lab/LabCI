@@ -76,8 +76,11 @@ describe('Test getRepoPath:', function() {
  */
 describe('Test addParam:', function() {
     it('expect deals with slash', function () {
-        const url = 'https://example.com';
+        let url = 'https://example.com';
         const param = 'param=value';
+        expect(lib.addParam(url, param)).eq(lib.addParam(url + '/', param));
+        url += '/foo';
+        expect(lib.addParam(url, param)).eq(url + '/?' + param);
         expect(lib.addParam(url, param)).eq(lib.addParam(url + '/', param));
     });
 
@@ -87,6 +90,18 @@ describe('Test addParam:', function() {
         const param2 = 'par=val';
         const expected = 'https://example.com/?param=value&par=val';
         expect(lib.addParam(url, param1, param2)).eq(expected);
+    });
+});
+
+
+/**
+ * A test for the function context2routine
+ */
+describe('Test context2routine:', function() {
+    it('expect returns default', function () {
+        const context = 'anything';
+        const expected = config['routines']['*'];
+        expect(lib.context2routine(context)).eq(expected);
     });
 });
 
@@ -379,7 +394,7 @@ describe("getBadgeData function", () => {
 
       // Failed tests
       input['sha'] = ids[0];
-      input['context'] = 'status';
+      input['context'] = 'build';
       data = lib.getBadgeData(input);
       expected = {
          schemaVersion: 1,
@@ -422,7 +437,7 @@ describe("getBadgeData function", () => {
 
    it('Check force flag', function () {
       input['sha'] = ids[1];
-      input['context'] = 'status';
+      input['context'] = 'build';
       input['force'] = true;  // set force flag to true
       const expected = {
          schemaVersion: 1,

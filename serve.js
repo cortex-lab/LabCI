@@ -8,7 +8,6 @@ const cp = require('child_process');
 
 const express = require('express');
 const srv = express();
-const shell = require('shelljs');
 const app = require("@octokit/auth-app");
 const { request } = require('@octokit/request');
 
@@ -233,25 +232,32 @@ srv.get(`/${ENDPOINT}/:id`, function (req, res) {
  * Serve the coverage results and build status for the shields.io coverage badge API.  Attempts to
  * load the test results from file and if none exist, adds a new job to the queue.
  */
-srv.get('/:badge/:repo/:branch', async (req, res) => {
+srv.get('/:badge/:repo/:id', async (req, res) => {
+   const context = req.params.badge === 'status' ? 'build' : req.params.badge;
    const data = {
       owner: process.env['REPO_OWNER'],
       repo: req.params.repo,
-      branch: req.params.branch,
+      routine: lib.context2routine(context)
+   };
+   // Check we have a matching routine
+   if (!data.routine) {
+      console.error(`No routine for "${context}" context`);
+      return res.sendStatus(404);
    }
+   let isSHA = lib.isSHA(req.params.id);
    // Find head commit of branch
-   return request('GET /repos/:owner/:repo/git/refs/heads/:branch', data)
-      .then(response => {
-         data['context'] = req.params.badge === 'status' ? 'build' : req.params.badge;
-         data['sha'] = response.data.object.sha;
+   return fetchCommit(req.params.id, !isSHA, req.params.repo)
+      .then(id => {
+         data['context'] = context;
+         data['sha'] = id;
          data['force'] = req.query.force === '' || lib.strToBool(req.query.force);
-         console.log(`Request for ${data.branch} ${data.context}`)
+         console.log(`Request for ${req.params.id} ${data.context}`)
          const report = lib.getBadgeData(data);  // TODO If pending return 201, else 200
          // Send report
          res.setHeader('Content-Type', 'application/json');
          res.end(JSON.stringify(report));})
       .catch(err => {  // Specified repo or branch not found
-         console.error(`${data.owner}/${data.repo}/${data.branch} not found`)
+         console.error(`${data.owner}/${data.repo}/${req.params.id} not found`)
          res.sendStatus((err.status === 404) ? 404 : 500)
       });
 });
@@ -259,134 +265,149 @@ srv.get('/:badge/:repo/:branch', async (req, res) => {
 
 ///////////////////// QUEUE EVENTS /////////////////////
 
-function runTests(job) {
-   const debug = log.extend('runTests');
-   debug('starting job timer');
-   const timer = lib.startJobTimer(job, config.kill_children === true);
-
-   // Go ahead with tests
-   const sha = job.data['sha'];
-   const repoPath = lib.getRepoPath(job.data.repo);
-   const logName = path.join(config.dataPath, 'reports', sha, `std_output-${lib.shortID(sha)}.log`);
-   let fcn = lib.fullpath(config.test_function);
-   debug('starting test child process %s', fcn);
-   let ops = config.shell? {'shell': config.shell} : {};
-   const runTests = cp.spawn(fcn, [sha, repoPath, config.dataPath], ops, (error, stdout, stderr) => {
-      debug('clearing job timer');
-      clearTimeout(timer);
-      delete job.data.process;
-      if (error) { // Send error status
-         let message;
-         if (error.killed || error.signal === 'SIGTERM') {
-            message = `Tests stalled after ~${(config.timeout / 60000).toFixed(0)} min`;
-         } else {
-            debug('error from test function: %o', error)
-            // Isolate error from log
-            // For MATLAB return the line that begins with 'Error'
-            let fn = (str) => { return str.startsWith('Error in \'') };
-            message = stderr.split(/\r?\n/).filter(fn).join(';');
-            // For Python, cat from the lost line that doesn't begin with whitespace
-            if (!message) {
-               let errArr = stderr.split(/\r?\n/);
-               let idx = errArr.reverse().findIndex(v => {return v.match('^\\S')});
-               message = stderr.split(/\r?\n/).slice(-idx-1).join(';');
-            }
-            if (!message) { message = error.code; }
-         }
-         // Save error into records for future reference.  NB: This is currently not done for prepEnv errors
-         let report = {
-            'commit': sha,
-            'results': message,
-            'status': 'error',
-            'description': 'Error running ' + (config.test_function || 'test function')
-         };
-         lib.saveTestRecords(report).then(() => { debug('updated test records'); });
-         job.done(new Error(message));  // Propagate
-      } else {
-         if (!lib.updateJobFromRecord(job)) {
-            job.done(new Error('Failed to return test result'));
-         } else {
-            job.done();
-         }
-      }
-   });
-   job.data.process = runTests;
-
-   // Write output to file
-   runTests.stdout.pipe(process.stdout);  // Pipe to display
-   runTests.stderr.pipe(process.stderr);
-   let logDump = fs.createWriteStream(logName, { flags: 'a' });
-   runTests.stdout.pipe(logDump);  // Pipe to file
-   runTests.stderr.pipe(logDump);
-   runTests.on('exit', () => { logDump.close(); });
-   return runTests;
-}
-
-function prepareEnv(job, callback) {
-   log('Preparing environment for job #%g', job.id)
-   const repoPath = lib.getRepoPath(job.data.repo);
-   switch (config.setup_function) {
-      case undefined:
-         // run some basic git commands
-         checkout(repoPath, job.data.sha);
-         return callback(job);
-      case null:  // No prep required
-         return callback(job);
-      default:
-         const sha = job.data['sha'];
-         const logDir = path.join(config.dataPath, 'reports', sha);
-         const logName = path.join(logDir, `std_output-${lib.shortID(sha)}.log`);
-         log('Calling %s with args %o', config.setup_function, [sha, repoPath, logName]);
-         let fcn = lib.fullpath(config.setup_function);
-         let ops = config.shell? {'shell': config.shell} : {};
-         const prepEnv = cp.execFile(fcn, [sha, repoPath, logDir], ops, (err, stdout, stderr) => {
-            if (err) {
-               let errmsg = (err.code === 'ENOENT')? `File "${fcn}" not found` : err.code;
-               console.error('Checkout failed: ' + (stderr || errmsg));
-               job.done(new Error(`Failed to prepare env: ${stderr || errmsg}`));  // Propagate error
-               return;
-            }
-            callback(job);
-         });
-         prepEnv.stdout.pipe(process.stdout);
-         prepEnv.stderr.pipe(process.stderr);
-         fs.mkdir(path.join(logDir), { recursive: true }, (err) => {
-            if (err) throw err;
-            let logDump = fs.createWriteStream(logName, { flags: 'w' });
-            prepEnv.stdout.pipe(logDump);
-            prepEnv.stderr.pipe(logDump);
-            prepEnv.on('exit', () => { logDump.close(); });
-         });
-         return prepEnv;
-   }
-}
-
 /**
- * Checkout Git repository.
- * @param {String} repoPath - The path of the repository
- * @param {String} ref - A commit SHA or branch name
- * @todo Add error handling
+ * Build task pipeline.  Takes a list of scripts/functions and builds a promise chain.
+ * @param {Object} job - The path of the repository
+ * @returns {Promise} - The job routine
  */
-function checkout(repoPath, ref) {
-   if (!shell.which('git')) { throw new Error('Git not found on path'); }
-   let verify = (cmd) => { if (!cmd) {
-      shell.popd();
-      throw new Error('Failed to checkout: ' + cmd.stderr);
-   } };
-   if (!shell.pushd(repoPath)) {
-      shell.mkdir(path.resolve(repoPath + path.sep + '..'));
-      shell.pushd(repoPath);
-      verify(shell.exec(`git clone https://github.com/${env.process['REPO_OWNER']}/${env.process['REPO_NAME']}.git`));
-      verify(shell.exec(`git checkout ${ref}`));
-   } else {
-      verify(shell.exec('git fetch -a'));
-      verify(shell.exec('git reset --hard HEAD'));
-      verify(shell.exec(`git checkout ${ref}`));
-      verify(shell.exec('git submodule update --init --recursive'));
-      verify(shell.exec('git submodule foreach git reset --hard HEAD'));
-      verify(shell.exec('git status'));
+async function buildRoutine(job) {
+   const debug = log.extend('pipeline');
+   const data = job.data;
+   // Get task list from job data, or from context if missing
+   const tasks = data.routine? lib.ensureArray(data.routine) : lib.context2routine(data.context);
+   // Throw an error if there is no routine defined for this job
+   if (!tasks) { throw new Error(`No routine defined for context ${data.context}`); }
+
+   debug('Building routine for job #%g', job.id);
+   // variables shared between functions
+   const repoPath = lib.getRepoPath(data.repo);
+   const sha = data['sha'];
+   const logDir = path.join(config.dataPath, 'reports', sha);
+   const logName = path.join(logDir, `std_output-${lib.shortID(sha)}.log`);
+   await fs.promises.mkdir(logDir, { recursive: true });
+   const logDump = fs.createWriteStream(logName, { flags: 'w' });
+   logDump.on('close', () => debug('Closing log file'));
+   const ops = config.shell? {'shell': config.shell} : {};
+
+   const init = () => debug('Executing pipeline for job #%g', job.id);
+   const routine = tasks.reduce(applyTask, Promise.resolve().then(init));
+   return routine
+      .then(updateJob)
+      .catch(handleError)
+      .finally(() => logDump.close())
+
+   /**
+    * Build task pipeline.  Should recursively call functions to produce chain of spawn callbacks.
+    * Must return promises.
+    * @param {Promise} pipeline - The promise chain to add to
+    * @param {String} task - The script
+    * @param {Number} idx - The current index in the pipeline
+    * @param {Array} taskList - An array of functions or scripts to execute consecutively
+    * @returns {Promise} - The job routine with `task` added to it.
+    */
+   function applyTask(pipeline, task, idx, taskList) {
+      return pipeline.then(() => {
+         debug('Starting task "%s" (%i/%i)', task, idx + 1, taskList.length);
+         const timer = lib.startJobTimer(job, config.kill_children === true);
+         task = lib.fullpath(task);  // Ensure absolute path
+         return new Promise(function (resolve, reject) {
+            // Spawn a process to execute our task
+            const child = cp.spawn(task, [sha, repoPath, logDir], ops);
+            let stdout = '', stderr = '';
+            // Pipe output to log file
+            child.stdout.pipe(logDump, { end: false });
+            child.stderr.pipe(logDump, { end: false });
+            // Keep output around for reporting errors
+            child.stdout.on('data', chunk => { stdout += chunk; });
+            child.stderr.on('data', chunk => { stderr += chunk; });
+            // error emitted called when spawn itself fails, or process could not be killed
+            child.on('error', err => {
+                     debug('clearing job timer');
+                     clearTimeout(timer);
+                     reject(err);})
+                 .on('exit', () => {
+                    debug('clearing job timer');
+                    clearTimeout(timer);})
+                 .on('close', (code, signal) => {
+                    const callback = (code === 0)? resolve : reject;
+                    const proc = {
+                       code: code,
+                       signal: signal,
+                       stdout: stdout,
+                       stderr: stderr,
+                       process: child
+                    };
+                    callback(proc);
+                 });
+            job.data.process = child;  // Assign the child process to the job
+         });
+      });
    }
-   shell.popd();
+
+   /**
+    * Handle any errors raised during the job routine.  If any process exits with a non-zero code
+    * this handler will divine the error, update the record and trigger the relevant job callbacks.
+    * @param {Object} errored - The stdout, stderr, ChildProcess, exit code and signal,
+    * or a childProcess Error object.
+    */
+   function handleError(errored) {
+      let message;  // Error message to pass to job callbacks and to save into records
+      // The script that threw the error
+      const file = (errored instanceof Error)? errored.path : errored.process.spawnfile;
+      delete job.data.process;  // Remove the process from the job data
+
+      // Check if the error is a spawn error, this is thrown when spawn itself fails, i.e. due to
+      // missing shell script
+      if (errored instanceof Error) {
+         if (errored.code === 'ENOENT') {
+            // Note the missing file (not necessarily the task script that's missing)
+            message = file? `File "${file}" not found` : 'No such file or directory';
+         } else {
+            message = `${errored.code} - Failed to spawn ${file}`;
+         }
+      // Check if the process was killed (we'll assume by the test timeout callback)
+      } else if (errored.process.killed || errored.signal === 'SIGTERM') {
+         message = `Tests stalled after ~${(config.timeout / 60000).toFixed(0)} min`;
+      } else {  // Error raised by process; dig through stdout for reason
+         debug('error from test function %s', file)
+         // Isolate error from log
+         // For MATLAB return the line that begins with 'Error'
+         let fn = (str) => { return str.startsWith('Error in \'') };
+         message = errored.stderr.split(/\r?\n/).filter(fn).join(';');
+         // For Python, cat from the lost line that doesn't begin with whitespace
+         if (!message && errored.stderr.includes('Traceback ')) {
+            let errArr = errored.stderr.split(/\r?\n/);
+            let idx = errArr.reverse().findIndex(v => {return v.match('^\\S')});
+            message = errored.stderr.split(/\r?\n/).slice(-idx-1).join(';');
+         }
+         // Otherwise simply use the full stderr (will be truncated)
+         if (!message) { message = errored.stderr; }
+      }
+      // Save error into records for future reference.
+      let report = {
+         'commit': sha,
+         'results': message,
+         'status': 'error',
+         'description': 'Error running ' + (file || 'test routine')
+      };
+      lib.saveTestRecords(report).then(() => { debug('updated test records'); });
+      job.done(new Error(message));  // Propagate
+   }
+
+    /**
+    * Update the job and mark complete.  Called when job routine completes without error.
+    * @param {Object} proc - The stdout, stderr, ChildProcess, exit code and signal
+    */
+   function updateJob(proc) {
+      debug('Job routine complete');
+      delete job.data.process;  // Remove process from job data
+      // Attempt to update the job data from the JSON records, throw error if this fails
+      if (!lib.updateJobFromRecord(job)) {
+         job.done(new Error('Failed to return test result'));
+      } else {
+         job.done(); // All good
+      }
+   }
 }
 
 
@@ -435,7 +456,6 @@ async function updateStatus(data, targetURL = '') {
  * Payload reference https://developer.github.com/webhooks/event-payloads/
  * @param {Object} event - The GitHub event object.
  * @todo Save full coverage object for future inspection
- * @todo Add support for ignore list for specific actions
  * @todo Add support for regex in branch ignore list
  */
 async function eventCallback (event) {
@@ -451,7 +471,8 @@ async function eventCallback (event) {
      repo: event.payload.repository.name,  // The repository name
      status: 'pending',  // The check state to update our context with
      description: null,  // A brief description of what transpired
-     context: null // The precise check name, keeps track of what check we're doing
+     context: null, // The precise check name, keeps track of what check we're doing
+     routine: null  // A list of scripts call call
   }
 
   // Double-check the event was intended for our app.  This is also done using the headers before
@@ -527,6 +548,7 @@ async function eventCallback (event) {
      // Copy job data and update check specific fields
      let data = Object.assign({}, job_template);
      data.context = `${check}/${process.env['USERDOMAIN'] || process.env['NAME']}`
+     data.routine = lib.context2routine(check);
      switch (check) {
         case 'coverage':
            data.description = 'Checking coverage';
@@ -570,9 +592,10 @@ queue.on('finish', (err, job) => { // On job end post result to API
   var target = '';  // We will only update the endpoint for coverage jobs
   console.log(`Job #${lib.shortID(job.id)} finished` + (err ? ' with error' : ''));
   if (job.data.skipPost === true) { return; }
+  let context = job.data.context || '';
 
   // Update target URL
-  if (!job.data.skipPost && job.data.context.startsWith('coverage')) {
+  if (!job.data.skipPost && context.startsWith('coverage')) {
      // No URL for coverage if errored
      target = err? '' : `${process.env['WEBHOOK_PROXY_URL']}/${ENDPOINT}/coverage/${job.data.sha}`;
   } else {
@@ -594,5 +617,5 @@ queue.on('finish', (err, job) => { // On job end post result to API
 });
 
 module.exports = {
-   updateStatus, srv, handler, setAccessToken, prepareEnv, runTests, eventCallback, fetchCommit
+   updateStatus, srv, handler, setAccessToken, eventCallback, fetchCommit, buildRoutine
 }
