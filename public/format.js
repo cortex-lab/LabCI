@@ -60,7 +60,7 @@ async function updateLog() {
         console.error('Failed to return the log file');
         return;
     }
-    lastModified = response.header('Last-Modified');
+    lastModified = response.headers.get('Last-Modified');
     let log = await (response).text();
     log = escapeHTML(log);
 
@@ -86,13 +86,15 @@ async function updateLog() {
     }
 
     // Call recursively
-    console.debug(response.header('X-CI-JobStatus'));
+    const jobStatus = response.headers.get('X-CI-JobStatus');
+    console.debug(jobStatus);
+
     if (!timer && urlParams.has('autoupdate')) {
         console.debug('Setting reload timer');
         const timeout = urlParams.get('autoupdate') || 1000;  // default 1 sec
         const minTimeout = 500;
         timer = setInterval(updateLog, Math.max(timeout, minTimeout));
-    } else if (response.ok && response.header('X-CI-JobStatus') === 'finished' && timer) {
+    } else if (response.ok && jobStatus === 'finished' && timer) {
         console.debug('Clearing reload timer');
         clearInterval(timer);
         timer = null;
