@@ -29,7 +29,7 @@ const supportedEvents = ['push', 'pull_request'];  // events the ci can handle
 const maxN = 140;  // The maximum n chars of the status description
 const ENDPOINT = 'logs';  // The URL endpoint for fetching status check details
 // An optional static directory for serving css files
-const STATIC = './public';
+const STATIC = 'public';
 
 // Check all config events are supported
 const events = Object.keys(config.events);
