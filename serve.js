@@ -10,6 +10,7 @@ const express = require('express');
 const srv = express();
 const app = require("@octokit/auth-app");
 const { request } = require('@octokit/request');
+const escapeHtml = require('escape-html');
 
 const config = require('./config/config').settings;
 const queue = require('./lib').queue;  // shared Queue from lib
@@ -27,6 +28,8 @@ const secret = process.env['GITHUB_WEBHOOK_SECRET'];
 const supportedEvents = ['push', 'pull_request'];  // events the ci can handle
 const maxN = 140;  // The maximum n chars of the status description
 const ENDPOINT = 'logs';  // The URL endpoint for fetching status check details
+// An optional static directory for serving css files
+const STATIC = './public';
 
 // Check all config events are supported
 const events = Object.keys(config.events);
@@ -39,6 +42,7 @@ if (events.some(evt => { return !supportedEvents.includes(evt); })) {
 // Create handler to verify posts signed with webhook secret.  Content type must be application/json
 const createHandler = require('github-webhook-handler');
 const handler = createHandler({ path: '/github', secret: secret, events: supportedEvents});
+
 
 /**
  * Fetch and assign the installation access token.  Should be called each time a POST is made to
@@ -162,6 +166,11 @@ srv.get(`/coverage/:id`, (req, res) => {
 srv.use(`/${ENDPOINT}/coverage`, express.static(path.join(config.dataPath, 'reports')))
 
 /**
+ * Serve the css and javascript for the log Webpage.
+ */
+srv.use(`/static`, express.static(STATIC))
+
+/**
  * Serve the test records for requested commit id.  Returns JSON data for the commit.
  */
 srv.get(`/${ENDPOINT}/records/:id`, function (req, res) {
@@ -202,27 +211,56 @@ srv.get(`/${ENDPOINT}/:id`, function (req, res) {
    );
    fetchCommit(req.params.id, !isSHA, req.query.module)
       .then(id => {
-         let filename = log_only? `test_output.log` : `std_output-${lib.shortID(id)}.log`;
-         let logFile = path.join(config.dataPath, 'reports', id, filename);
-         fs.readFile(logFile, 'utf8', (err, data) => {
-            if (err) {
-               log('%s', err.message);
-               res.statusCode = 404;
-               res.send(`Record for ${isSHA? 'commit' : 'branch'} ${id} not found`);
-            } else {
-               res.statusCode = 200;
-               // Wrap in HTML tags so that the formatting is a little nicer.
-               let preText = '<html lang="en-GB"><body><pre>';
-               let postText = '</pre></body></html>';
-               res.send(preText + data + postText);
+         let url = lib.addParam('/static/log.html', `id=${id}`);
+         if (log_only) { url = lib.addParam(url, 'type=log'); }
+         for (let job of queue.pile) {
+            if (job.data.sha === id) {
+               url = lib.addParam(url, 'autoupdate=');
+               break;
             }
-         });
+         }
+         res.redirect(301, url);
       })
       .catch(err => {
          log('%s', err.message);
     	   res.statusCode = 404;
     	   res.send(`Record for ${isSHA? 'commit' : 'branch'} ${req.params.id} not found`);
       });
+});
+
+
+/**
+ * Serve the test results for requested commit id.  Returns the raw text log.
+ */
+srv.get(`/${ENDPOINT}/raw/:id`, function (req, res) {
+   let id = lib.shortID(req.params.id);
+   let log_only = (req.query.type || '').startsWith('log')
+   let filename = log_only? `test_output.log` : `std_output-${lib.shortID(id)}.log`;
+   let logFile = path.join(config.dataPath, 'reports', id, filename);
+   let jobStatus = 'unknown';
+   for (let job of queue.pile) {
+      if (job.data.sha === req.params.id) {
+         jobStatus = running === true? 'running' : 'queued';
+         break;
+      }
+   }
+
+   fs.readFile(logFile, 'utf8', (err, data) => {
+      if (err) {
+         // Check if queued...
+         if (jobStatus === 'queued') {
+            data = 'Job waiting to start...';
+         } else {
+            log('%s', err.message);
+            res.statusCode = 404;
+            res.send(`Record for commit ${id} not found`);
+            return;
+         }
+      }
+      res.statusCode = 200;
+      res.header('job_status', jobStatus);
+      res.send(escapeHtml(data));
+   });
 });
 
 

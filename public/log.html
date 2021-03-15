@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="highlight.css">
+    <script src="format.js"></script>
+    <script type="text/javascript">
+        const queryString = window.location.search;
+        const urlParams = new URLSearchParams(queryString);
+        if (urlParams.has('autoupdate')) {
+           const timeout = urlParams.get('autoupdate') || 1000;
+           setInterval(updateLog, timeout);
+        } else {
+           document.addEventListener('DOMContentLoaded', updateLog, false);
+        }
+    </script>
+</head>
+<body>
+    <div id="console"><pre></pre></div>
+</body>
+</html>
