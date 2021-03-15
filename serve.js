@@ -247,7 +247,7 @@ srv.get(`/${ENDPOINT}/raw/:id`, function (req, res) {
    let id = lib.shortID(req.params.id);
    let log_only = (req.query.type || '').startsWith('log')
    let filename = log_only? `test_output.log` : `std_output-${lib.shortID(id)}.log`;
-   let logFile = path.join(config.dataPath, 'reports', id, filename);
+   let logFile = path.join(config.dataPath, 'reports', req.params.id, filename);
    let jobStatus = 'unknown';
    for (let job of queue.pile) {
       if (job.data.sha === req.params.id) {
