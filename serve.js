@@ -231,7 +231,7 @@ srv.get(`/${ENDPOINT}/:id`, function (req, res) {
 
 srv.get(`/log/:id`, function (req, res) {
    try {
-      res.sendFile(path.join(STATIC + 'log.html'));
+      res.sendFile(path.join(__dirname, STATIC, 'log.html'));
    } catch (err) {
       log('%s', err.message);
       res.statusCode = 404;
