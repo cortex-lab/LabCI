@@ -81,32 +81,34 @@ async function updateLog() {
     log = escapeHTML(log);
 
     // Apply the regex for styling/highlighting the text
-    log = log.replace(/\x1b?\[0m/gm, '');  // Remove escape chars
-    for (let style in regExps) {
-       log = log.replace(regExps[style], x => toSpan(x, style));
+    if (urlParams.get('formatting') !== 'off') {
+        log = log.replace(/\x1b?\[0m/gm, '');  // Remove escape chars
+        for (let style in regExps) {
+           log = log.replace(regExps[style], x => toSpan(x, style));
+        }
     }
 
     // If not static, add a little blinking cursor to indicate activity
     if (urlParams.has('refresh')) { log += cursor; }
 
-    // Update console text
-    contentDiv.innerHTML = log;
-
     // Check if you're at the bottom
     const elem = document.getElementById('console');
     const atBottom = elem.scrollHeight - elem.scrollTop === elem.clientHeight;
 
+    // Update console text
+    contentDiv.innerHTML = log;
+
     // If you were at the bottom, update scroll position
     if (atBottom) {
+        console.debug('Setting scroll height')
         elem.scrollTop = elem.scrollHeight;
     }
 
     // Set title
     const jobStatus = response.headers.get('X-CI-JobStatus');
     const header = document.querySelector('h1');
-    header.innerText = `${heading} &vert; ${jobStatus.toUpperCase()}`;
+    header.innerText = `${heading} | ${jobStatus.toUpperCase()}`;
     document.title = `Job ${jobStatus} for commit ${shortID(id)}`;
-    console.debug(jobStatus);
 
     if (!timer && urlParams.has('refresh')) {
         console.debug('Setting reload timer');

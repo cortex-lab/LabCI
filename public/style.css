@@ -3,9 +3,8 @@
     width: 80%;
     display: flex;
     border: 5px solid beige;
-
     background-color: black;
-    height: 90vh;
+    height: 80vh;
     overflow: auto;
     padding: 2rem;
     color: white;
@@ -42,7 +41,7 @@ body::after {
 
 .blinking-cursor {
     color: #2E3D48;
-    text-shadow: 0 0 2px #C8C8C8;
+    text-shadow: 0 0 1px #C8C8C8;
     -webkit-animation: 1s blink step-end infinite;
     -moz-animation: 1s blink step-end infinite;
     -o-animation: 1s blink step-end infinite;
