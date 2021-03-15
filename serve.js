@@ -603,9 +603,11 @@ async function eventCallback (event) {
      let data = Object.assign({}, job_template);
      data.context = `${check}/${process.env['USERDOMAIN'] || process.env['NAME']}`
      data.routine = lib.context2routine(check);
+     let targetURL = `${process.env['WEBHOOK_PROXY_URL']}/log/${data.sha}?refresh=1000`;
      switch (check) {
         case 'coverage':
            data.description = 'Checking coverage';
+           targetURL = '';  // Must wait until end for coverage
            break;
         case 'continuous-integration':
            data.description = 'Tests running';
@@ -625,7 +627,7 @@ async function eventCallback (event) {
      * NB: If the tests and env prep are too quick our outcome may be updated before the pending
      * status.
      */
-     updateStatus(data)
+     updateStatus(data, targetURL)
         .then(() => console.log(`Updated status to "pending" for ${data.context}`))
         .catch(err => {
            console.log(`Failed to update status to "pending" for ${data.context}`);

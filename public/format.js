@@ -13,7 +13,9 @@ const regExps = {
 const cursor = '<span class="blinking-cursor">&#9608;</span>';
 let timer = null;
 let lastModified = null;
-
+const id = window.location.pathname.split('/').pop();
+const heading = 'Job log for commit ' + shortID(id);
+document.querySelector('pre').innerText = heading;
 
 /**
  * Given some text and a class name, return the text wrapped in a span of that class.
@@ -27,17 +29,25 @@ function escapeHTML(str){
 }
 
 /**
+ * Return a shortened version of an int or string id
+ * @param {any} v - ID to shorten.
+ * @param {int} len - Maximum number of chars.
+ * @returns {String} v as a short string.
+ */
+function shortID(v, len=7) {
+   if (Array.isArray(v)) { return v.map(v => shortID(v, len)); }
+   if (Number.isInteger(v)) { v = v.toString(); }
+   if (typeof v === 'string' || v instanceof String) { v = v.substr(0, len); }
+   return v;  // If not string, array or number, leave unchanged
+}
+
+/**
  * Fetch the raw log text from remote.
  */
 async function updateLog() {
     const contentDiv = document.querySelector('pre');
     const queryString = window.location.search;
     const urlParams = new URLSearchParams(queryString);
-    const id = window.location.pathname.split('/').pop();
-    if (!id) {
-        contentDiv.innerHTML = 'ERROR: Log not found';
-        return;
-    }
 
     const url = '/logs/raw/' + id;
     // If the console is empty, add some loading text
@@ -58,6 +68,10 @@ async function updateLog() {
         return;
     } else if (response.status !== 200) {
         console.error('Failed to return the log file');
+        // If never loaded, change console text
+        if (!lastModified) {
+            contentDiv.innerHTML = toSpan('ERROR: Failed to load log', 'error');
+        }
         return;
     }
     lastModified = response.headers.get('Last-Modified');
@@ -71,7 +85,7 @@ async function updateLog() {
     }
 
     // If not static, add a little blinking cursor to indicate activity
-    if (urlParams.has('autoupdate')) { log += cursor; }
+    if (urlParams.has('refresh')) { log += cursor; }
 
     // Update console text
     contentDiv.innerHTML = log;
@@ -85,13 +99,16 @@ async function updateLog() {
         elem.scrollTop = elem.scrollHeight;
     }
 
-    // Call recursively
+    // Set title
     const jobStatus = response.headers.get('X-CI-JobStatus');
+    const header = document.querySelector('h1')
+    header.innerText = `${heading} &vert; ${jobStatus.toUpperCase()}`;
+    document.title = `Job ${jobStatus} for commit ${shortID(id)}`;
     console.debug(jobStatus);
 
-    if (!timer && urlParams.has('autoupdate')) {
+    if (!timer && urlParams.has('refresh')) {
         console.debug('Setting reload timer');
-        const timeout = urlParams.get('autoupdate') || 1000;  // default 1 sec
+        const timeout = urlParams.get('refresh') || 1000;  // default 1 sec
         const minTimeout = 500;
         timer = setInterval(updateLog, Math.max(timeout, minTimeout));
     } else if (response.ok && jobStatus === 'finished' && timer) {
