@@ -15,7 +15,9 @@ let timer = null;
 let lastModified = null;
 const id = window.location.pathname.split('/').pop();
 const heading = 'Job log for commit ' + shortID(id);
-document.querySelector('pre').innerText = heading;
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelector('h1').innerText = heading;
+}, false);
 
 /**
  * Given some text and a class name, return the text wrapped in a span of that class.
@@ -101,7 +103,7 @@ async function updateLog() {
 
     // Set title
     const jobStatus = response.headers.get('X-CI-JobStatus');
-    const header = document.querySelector('h1')
+    const header = document.querySelector('h1');
     header.innerText = `${heading} &vert; ${jobStatus.toUpperCase()}`;
     document.title = `Job ${jobStatus} for commit ${shortID(id)}`;
     console.debug(jobStatus);
