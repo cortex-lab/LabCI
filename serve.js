@@ -211,15 +211,15 @@ srv.get(`/${ENDPOINT}/:id`, function (req, res) {
    );
    fetchCommit(req.params.id, !isSHA, req.query.module)
       .then(id => {
-         let url = lib.addParam('/static/log.html', `id=${id}`);
-         if (log_only) { url = lib.addParam(url, 'type=log'); }
-         for (let job of queue.pile) {
-            if (job.data.sha === id) {
-               url = lib.addParam(url, 'autoupdate=');
-               break;
-            }
-         }
-         res.redirect(301, url);
+         // let url = lib.addParam('/static/log.html', `id=${id}`);
+         // if (log_only) { url = lib.addParam(url, 'type=log'); }
+         // for (let job of queue.pile) {
+         //    if (job.data.sha === id) {
+         //       url = lib.addParam(url, 'autoupdate=');
+         //       break;
+         //    }
+         // }
+         res.sendFile(path.join(STATIC + 'log.html'));
       })
       .catch(err => {
          log('%s', err.message);

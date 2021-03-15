@@ -26,7 +26,7 @@ async function updateLog() {
     const contentDiv = document.querySelector('pre');
     const queryString = window.location.search;
     const urlParams = new URLSearchParams(queryString);
-    const id = urlParams.get('id')
+    const id = window.location.pathname.split('/').pop();
     if (!id) {
         contentDiv.innerHTML = 'ERROR: Log not found';
         return;
