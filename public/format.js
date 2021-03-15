@@ -11,12 +11,19 @@ const regExps = {
     logCritical: /\[.*CRITICAL.*\r?\n(?:^\s+.*\r?\n)*/gm  // log.critical
 };
 const cursor = '<span class="blinking-cursor">&#9608;</span>';
+let timer = null;
+let lastModified = null;
+
 
 /**
  * Given some text and a class name, return the text wrapped in a span of that class.
  */
 function toSpan(text, className) {
    return '<span class="' + className + '">' + text + '</span>';
+}
+
+function escapeHTML(str){
+    return new Option(str).innerHTML;
 }
 
 /**
@@ -31,7 +38,7 @@ async function updateLog() {
         contentDiv.innerHTML = 'ERROR: Log not found';
         return;
     }
-    // const url = 'http://localhost:8080/log';
+
     const url = '/logs/raw/' + id;
     // If the console is empty, add some loading text
     if (!contentDiv.innerHTML) {
@@ -40,7 +47,22 @@ async function updateLog() {
 
     // Fetch the remote log text
     console.debug('Reloading log');
-    let log = await (await fetch(url)).text();
+    let options = {};
+    if (lastModified) {
+        options['headers'] = { 'If-Modified-Since': lastModified };
+    }
+
+    let response = await fetch(url, options);
+    if (response.status === 304) {
+        console.debug('Log unchanged');
+        return;
+    } else if (response.status !== 200) {
+        console.error('Failed to return the log file');
+        return;
+    }
+    lastModified = response.header('Last-Modified');
+    let log = await (response).text();
+    log = escapeHTML(log);
 
     // Apply the regex for styling/highlighting the text
     log = log.replace(/\x1b?\[0m/gm, '');  // Remove escape chars
@@ -49,19 +71,33 @@ async function updateLog() {
     }
 
     // If not static, add a little blinking cursor to indicate activity
-    if (urlParams.has('autoupdate')) {
-       log += cursor;
-    }
+    if (urlParams.has('autoupdate')) { log += cursor; }
+
+    // Update console text
+    contentDiv.innerHTML = log;
 
     // Check if you're at the bottom
     const elem = document.getElementById('console');
     const atBottom = elem.scrollHeight - elem.scrollTop === elem.clientHeight;
 
-    // Update console text
-    contentDiv.innerHTML = log;
-
     // If you were at the bottom, update scroll position
     if (atBottom) {
         elem.scrollTop = elem.scrollHeight;
     }
+
+    // Call recursively
+    console.debug(response.header('X-CI-JobStatus'));
+    if (!timer && urlParams.has('autoupdate')) {
+        console.debug('Setting reload timer');
+        const timeout = urlParams.get('autoupdate') || 1000;  // default 1 sec
+        const minTimeout = 500;
+        timer = setInterval(updateLog, Math.max(timeout, minTimeout));
+    } else if (response.ok && response.header('X-CI-JobStatus') === 'finished' && timer) {
+        console.debug('Clearing reload timer');
+        clearInterval(timer);
+        timer = null;
+    }
+
 }
+
+document.addEventListener('DOMContentLoaded', updateLog, false);

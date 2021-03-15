@@ -246,9 +246,8 @@ srv.get(`/log/:id`, function (req, res) {
 srv.get(`/${ENDPOINT}/raw/:id`, function (req, res) {
    let id = lib.shortID(req.params.id);
    let log_only = (req.query.type || '').startsWith('log')
-   let filename = log_only? `test_output.log` : `std_output-${lib.shortID(id)}.log`;
-   let logFile = path.join(config.dataPath, 'reports', req.params.id, filename);
-   let jobStatus = 'unknown';
+   let filename = log_only? `test_output.log` : `std_output-${id}.log`;
+   let jobStatus = 'finished';
    for (let job of queue.pile) {
       if (job.data.sha === req.params.id) {
          jobStatus = running === true? 'running' : 'queued';
@@ -256,22 +255,28 @@ srv.get(`/${ENDPOINT}/raw/:id`, function (req, res) {
       }
    }
 
-   fs.readFile(logFile, 'utf8', (err, data) => {
-      if (err) {
-         // Check if queued...
-         if (jobStatus === 'queued') {
-            data = 'Job waiting to start...';
-         } else {
-            log('%s', err.message);
-            res.statusCode = 404;
-            res.send(`Record for commit ${id} not found`);
-            return;
-         }
-      }
+   if (jobStatus === 'queued') {
       res.statusCode = 200;
-      res.header('job_status', jobStatus);
-      res.send(escapeHtml(data));
+      res.header('X-CI-JobStatus', jobStatus);
+      res.send('Job waiting to start...');
+      return;
+   }
+
+   const options = {
+      root: path.join(config.dataPath, 'reports', req.params.id),
+      headers: {
+         'X-CI-JobStatus': jobStatus
+      }
+   };
+
+   res.sendFile(filename, options, function (err) {
+      if (err) {
+         console.error('Failed to send log: ', err);
+      } else {
+         log('Sent:', filename);
+      }
    });
+
 });
 
 
