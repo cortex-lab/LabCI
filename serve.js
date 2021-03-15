@@ -250,7 +250,7 @@ srv.get(`/${ENDPOINT}/raw/:id`, function (req, res) {
    let jobStatus = 'finished';
    for (let job of queue.pile) {
       if (job.data.sha === req.params.id) {
-         jobStatus = running === true? 'running' : 'queued';
+         jobStatus = job.running === true? 'running' : 'queued';
          break;
       }
    }
