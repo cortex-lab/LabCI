@@ -219,13 +219,24 @@ srv.get(`/${ENDPOINT}/:id`, function (req, res) {
          //       break;
          //    }
          // }
-         res.sendFile(path.join(STATIC + 'log.html'));
+         res.redirect(301, '/log/' + id);
       })
       .catch(err => {
          log('%s', err.message);
     	   res.statusCode = 404;
     	   res.send(`Record for ${isSHA? 'commit' : 'branch'} ${req.params.id} not found`);
       });
+});
+
+
+srv.get(`/log/:id`, function (req, res) {
+   try {
+      res.sendFile(path.join(STATIC + 'log.html'));
+   } catch (err) {
+      log('%s', err.message);
+      res.statusCode = 404;
+      res.send(`Record for commit ${req.params.id} not found`);
+   }
 });
 
 
