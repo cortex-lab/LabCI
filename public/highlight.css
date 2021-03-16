@@ -2,7 +2,7 @@
 	color: cyan;
 }
 
-.logWarn {
+.logWarn .warning {
     color: orange;
     text-shadow: 0 0 5px;
 }
@@ -21,8 +21,4 @@
     color: red;
     font-weight: bold;
     text-shadow: 0 0 5px;
-}
-
-.warning {
-    color: orange;
 }

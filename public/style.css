@@ -1,4 +1,5 @@
 #console {
+    position: relative;
     margin: auto;
     width: 80%;
     display: flex;
@@ -6,19 +7,19 @@
     background-color: black;
     height: 80vh;
     overflow: auto;
-    padding: 2rem;
+    padding: 1rem;
     color: white;
     font: .8rem Inconsolata, monospace;
     text-shadow: 0 0 5px #C8C8C8;
     scrollbar-width: thin;
 }
 
-p.date {
+p#date {
     position : absolute;
-    top : 0;
-    right : 5px;
-    color: gray;
-    font: .8rem Inconsolata, monospace;
+    top : -5px;
+    right : 10px;
+    color: grey;
+    text-shadow: none;
 }
 
 h1 {
