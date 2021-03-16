@@ -197,9 +197,8 @@ srv.get(`/${ENDPOINT}/records/:id`, function (req, res) {
 });
 
 /**
- * Serve the test results for requested commit id.  This will be the result of a user clicking on
- * the 'details' link next to the continuous integration check.  The result should be an HTML
- * formatted copy of the stdout for the job's process.
+ * Serve the test results for requested commit id.  This endpoint parses and validates the id.
+ * If it corresponds to a valid commit SHA, the user is redirected to the log endpoint.
  */
 srv.get(`/${ENDPOINT}/:id`, function (req, res) {
    let id = lib.shortID(req.params.id);
@@ -210,17 +209,7 @@ srv.get(`/${ENDPOINT}/:id`, function (req, res) {
       (isSHA? `commit ${id}` : `branch ${req.params.id}`)
    );
    fetchCommit(req.params.id, !isSHA, req.query.module)
-      .then(id => {
-         // let url = lib.addParam('/static/log.html', `id=${id}`);
-         // if (log_only) { url = lib.addParam(url, 'type=log'); }
-         // for (let job of queue.pile) {
-         //    if (job.data.sha === id) {
-         //       url = lib.addParam(url, 'autoupdate=');
-         //       break;
-         //    }
-         // }
-         res.redirect(301, '/log/' + id);
-      })
+      .then(id => res.redirect(301, '/log/' + id))
       .catch(err => {
          log('%s', err.message);
     	   res.statusCode = 404;
@@ -229,8 +218,13 @@ srv.get(`/${ENDPOINT}/:id`, function (req, res) {
 });
 
 
+/**
+ * Serve the test results for requested commit id.  This will be the result of a user clicking on
+ * the 'details' link next to the continuous integration check.  The result should be an HTML
+ * formatted copy of the stdout for the job's process.
+ */
 srv.get(`/log/:id`, function (req, res) {
-   try {
+   try {  // Send static HTML page template
       res.sendFile(path.join(__dirname, STATIC, 'log.html'));
    } catch (err) {
       log('%s', err.message);
@@ -241,7 +235,9 @@ srv.get(`/log/:id`, function (req, res) {
 
 
 /**
- * Serve the test results for requested commit id.  Returns the raw text log.
+ * Serve the log file for requested commit id.  This endpoint is fetched by the format.js script
+ * client side.  Returns the raw text log along with a header to indicate whether the job is
+ * active.  If the log hasn't changed since the last request, a 304 is returned instead.
  */
 srv.get(`/${ENDPOINT}/raw/:id`, function (req, res) {
    let id = lib.shortID(req.params.id);
@@ -603,7 +599,7 @@ async function eventCallback (event) {
      let data = Object.assign({}, job_template);
      data.context = `${check}/${process.env['USERDOMAIN'] || process.env['NAME']}`
      data.routine = lib.context2routine(check);
-     let targetURL = `${process.env['WEBHOOK_PROXY_URL']}/log/${data.sha}?refresh=1000`;
+     let targetURL = `${process.env['WEBHOOK_PROXY_URL']}/log/${data.sha}?refresh=1`;
      switch (check) {
         case 'coverage':
            data.description = 'Checking coverage';

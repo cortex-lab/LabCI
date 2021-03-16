@@ -2,9 +2,9 @@
   * A map of class ids and the regular expressions that capture the text to style
   */
 const regExps = {
-    errorStack: /'^Traceback.*?(?=\n\S)'/gms,  // Error stack
-    error: /^\w*Error.*?(?=\n\S)/gms,  // Error statement
-    warning: /Warning:.*?(?=\n\S)/gms,  // Warning
+    errorStack: /^Traceback.*\r?\n(?:^\s+.*\r?\n)+/gm,  // Error stack
+    error: /^\w*(Error|Exception).*\r?\n/gm,  // Error statement
+    warning: /\w*Warning:.*\r?\n(?:^\s+.*\r?\n)/gm,  // Warning
     logInfo: /\[.*INFO.*\r?\n(?:^\s+.*\r?\n)*/gm,  // log.info
     logWarn: /\[.*WARNING.*\r?\n(?:^\s+.*\r?\n)*/gm,  // log.warning
     logError: /\[.*ERROR.*\r?\n(?:^\s+.*\r?\n)*/gm,  // log.error
@@ -77,6 +77,7 @@ async function updateLog() {
         return;
     }
     lastModified = response.headers.get('Last-Modified');
+    const jobStatus = response.headers.get('X-CI-JobStatus');
     let log = await (response).text();
     log = escapeHTML(log);
 
@@ -89,7 +90,8 @@ async function updateLog() {
     }
 
     // If not static, add a little blinking cursor to indicate activity
-    if (urlParams.has('refresh')) { log += cursor; }
+    const isRunning = ['queued', 'running'].includes(jobStatus);
+    if (isRunning) { log += cursor; }
 
     // Check if you're at the bottom
     const elem = document.getElementById('console');
@@ -104,16 +106,16 @@ async function updateLog() {
         elem.scrollTop = elem.scrollHeight;
     }
 
-    // Set title
-    const jobStatus = response.headers.get('X-CI-JobStatus');
+    // Set title, etc.
     const header = document.querySelector('h1');
     header.innerText = `${heading} | ${jobStatus.toUpperCase()}`;
     document.title = `Job ${jobStatus} for commit ${shortID(id)}`;
+    document.getElementById('date').innerText = new Date(lastModified).toLocaleString();
 
-    if (!timer && urlParams.has('refresh')) {
+    if (!timer && (urlParams.has('refresh') || isRunning)) {
         console.debug('Setting reload timer');
-        const timeout = urlParams.get('refresh') || 1000;  // default 1 sec
-        const minTimeout = 500;
+        const timeout = (urlParams.get('refresh') || 2) * 1000;  // default 2 sec
+        const minTimeout = 500;  // ms
         timer = setInterval(updateLog, Math.max(timeout, minTimeout));
     } else if (response.ok && jobStatus === 'finished' && timer) {
         console.debug('Clearing reload timer');

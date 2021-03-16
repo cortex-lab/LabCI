@@ -10,10 +10,29 @@
     color: white;
     font: .8rem Inconsolata, monospace;
     text-shadow: 0 0 5px #C8C8C8;
+    scrollbar-width: thin;
+}
+
+p.date {
+    position : absolute;
+    top : 0;
+    right : 5px;
+    color: gray;
+    font: .8rem Inconsolata, monospace;
 }
 
 h1 {
     text-align:center;
+}
+
+footer {
+    text-align: center;
+    padding: 1px;
+    background-color: bisque;
+}
+
+a {
+    color: black;
 }
 
 body::after {
