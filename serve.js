@@ -327,8 +327,9 @@ srv.get('/:badge/:repo/:id', async (req, res) => {
          data['sha'] = id;
          data['force'] = req.query.force === '' || lib.strToBool(req.query.force);
          console.log(`Request for ${req.params.id} ${data.context}`)
-         const report = lib.getBadgeData(data);  // TODO If pending return 201, else 200
+         const report = lib.getBadgeData(data);
          // Send report
+         res.statusCode = (report['message'] === 'pending')? 201 : 200;
          res.setHeader('Content-Type', 'application/json');
          res.end(JSON.stringify(report));})
       .catch(err => {  // Specified repo or branch not found
