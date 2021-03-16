@@ -10,7 +10,6 @@ const express = require('express');
 const srv = express();
 const app = require("@octokit/auth-app");
 const { request } = require('@octokit/request');
-const escapeHtml = require('escape-html');
 
 const config = require('./config/config').settings;
 const queue = require('./lib').queue;  // shared Queue from lib
@@ -172,6 +171,7 @@ srv.use(`/static`, express.static(STATIC))
 
 /**
  * Serve the test records for requested commit id.  Returns JSON data for the commit.
+ * If no record exists and a job is queued the job data is sent, otherwise a 404.
  */
 srv.get(`/${ENDPOINT}/records/:id`, function (req, res) {
    let id = lib.shortID(req.params.id);
@@ -181,18 +181,32 @@ srv.get(`/${ENDPOINT}/records/:id`, function (req, res) {
       .then(id => {
          log('Commit ID found: %s', id);
          let record = lib.loadTestRecords(id);
-         if (record) {
+         if (record.length !== 0) {
             res.setHeader('Content-Type', 'application/json');
             res.end(JSON.stringify(record));
          } else {
+            // Check if on pile
+            for (let job of queue.pile) {
+               if (job.data.sha === id) {
+                  res.setHeader('Content-Type', 'application/json');
+                  res.end(JSON.stringify(job.data));
+                  return;
+               }
+            }
+            // Not on pile, return 404
             res.statusCode = 404;
-    	      res.send(`${isSHA? 'Commit' : 'Branch'} ${id} not recognized.`);
+    	      res.send(`Record for ${isSHA? 'commit' : 'branch'} ${id} not found.`);
          }
       })
       .catch(err => {
-         log('%s', err.message);
-    	   res.statusCode = 404;
-    	   res.send(`Record for ${isSHA? 'commit' : 'branch'} ${req.params.id} not found`);
+         if (err.status === 404) {
+            res.statusCode = 404;
+            res.send(`${isSHA? 'Commit' : 'Branch'} ${req.params.id} not found.`);
+         } else {
+            log('%s', err.message || err.name);
+            res.statusCode = 500;
+    	      res.send('Failed to read test records JSON');
+         }
       });
 });
 
@@ -273,6 +287,17 @@ srv.get(`/${ENDPOINT}/raw/:id`, function (req, res) {
       }
    });
 
+});
+
+
+/**
+ * Serve a list of currently cued jobs.
+ */
+srv.get('/jobs', function (req, res) {
+   const data = { total: queue.pile.length, pile: queue.pile };
+   const replacer = (key, value) => { return (key[0] === '_')? undefined : value };
+   res.setHeader('Content-Type', 'application/json');
+   res.end(JSON.stringify(data, replacer));
 });
 
 
@@ -389,7 +414,7 @@ async function buildRoutine(job) {
                     };
                     callback(proc);
                  });
-            job.data.process = child;  // Assign the child process to the job
+            job._child = child;  // Assign the child process to the job
          });
       });
    }
@@ -404,7 +429,7 @@ async function buildRoutine(job) {
       let message;  // Error message to pass to job callbacks and to save into records
       // The script that threw the error
       const file = (errored instanceof Error)? errored.path : errored.process.spawnfile;
-      delete job.data.process;  // Remove the process from the job data
+      // delete job._child;  // Remove the process from the job data
 
       // Check if the error is a spawn error, this is thrown when spawn itself fails, i.e. due to
       // missing shell script
@@ -450,7 +475,7 @@ async function buildRoutine(job) {
     */
    function updateJob(proc) {
       debug('Job routine complete');
-      delete job.data.process;  // Remove process from job data
+      // delete job._child;  // Remove process from job data
       // Attempt to update the job data from the JSON records, throw error if this fails
       if (!lib.updateJobFromRecord(job)) {
          job.done(new Error('Failed to return test result'));

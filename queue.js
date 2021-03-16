@@ -102,6 +102,8 @@ class Job extends EventEmitter {
   id;
   data;
   running;
+  created;
+  _child;
   /**
    * Create a job object with associated data.
    * @param {number} id - Job ID (unique in current Queue pile).
@@ -116,6 +118,7 @@ class Job extends EventEmitter {
     this.id = id;
     this.data = data;
     this.running = false;
+    this.created = new Date();
   }
 
   /**

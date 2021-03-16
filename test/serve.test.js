@@ -567,6 +567,12 @@ describe('records endpoint', () => {
 
    before(function () {
       scope = nock('https://api.github.com');
+      queue.process(async (_job, _done) => {})  // nop
+   });
+
+   after(function () {
+      queue.pile = [];
+      delete queue.process;
    });
 
    it('expect JSON log', (done) => {
@@ -617,6 +623,37 @@ describe('records endpoint', () => {
          });
    });
 
+   it('expect 500 on error', (done) => {
+      const id = SHA.replace('2', '3');
+      scope.get(`/repos/${process.env.REPO_OWNER}/${process.env.REPO_NAME}/commits/${id}`)
+           .reply(500);
+      // Check JSON record returned
+      request(srv)
+         .get(`/${ENDPOINT}/records/${id}`)
+         .expect(500)
+         .end(function (err, res) {
+            if (err) return done(err);
+            expect(res.text).contains('Failed');
+            done();
+         });
+   });
+
+   it('expect queued job data', (done) => {
+      const id = SHA.replace('2', '3');
+      scope.get(`/repos/${process.env.REPO_OWNER}/${process.env.REPO_NAME}/commits/${id}`)
+           .reply(200, { sha: id } );
+      queue.add( {sha: id, status: 'pending'} );
+      // Check JSON record returned
+      request(srv)
+         .get(`/${ENDPOINT}/records/${id}`)
+         .expect(200)
+         .end(function (err, res) {
+            if (err) return done(err);
+            expect(res.text).contains('pending');
+            done();
+         });
+   });
+
    it('expect works with branch and module', (done) => {
       const branch = 'develop';
       const repo = 'foobar';
@@ -639,6 +676,41 @@ describe('records endpoint', () => {
          });
    });
 
+});
+
+
+/**
+ * This tests the jobs endpoint.  This endpoint should return the jobs pile.
+ */
+describe('jobs endpoint', () => {
+
+   before(function () {
+      queue.process(async (_job, _done) => {})  // nop
+   });
+
+   after(function () {
+      queue.pile = [];
+      delete queue.process;
+   });
+
+   it('expect queue JSON', (done) => {
+      queue.add({sha: SHA, status: 'pending', context: 'continuous-integration'});
+      queue.add({sha: SHA, status: 'pending', context: 'coverage'});
+      // Check JSON record returned
+      request(srv)
+         .get('/jobs')
+         .expect(200)
+         .expect('Content-Type', 'application/json')
+         .end(function (err, res) {
+            if (err) return done(err);
+            const payload = JSON.parse(res.text);
+            expect(payload.total).eq(2);
+            expect(payload.pile[0].running).true;
+            expect(payload.pile[1].running).false;
+            expect(payload.pile[0]._child).undefined;
+            done();
+         });
+   });
 });
 
 
