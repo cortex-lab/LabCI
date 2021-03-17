@@ -5,6 +5,7 @@ const regExps = {
     errorStack: /^Traceback.*\r?\n(?:^\s+.*\r?\n)+/gm,  // Error stack
     error: /^\w*(Error|Exception).*\r?\n/gm,  // Error statement
     warning: /\w*Warning:.*\r?\n(?:^\s+.*\r?\n)/gm,  // Warning
+    logDebug: /\[.*DEBUG.*\r?\n(?:^\s+.*\r?\n)*/gm,  // log.debug
     logInfo: /\[.*INFO.*\r?\n(?:^\s+.*\r?\n)*/gm,  // log.info
     logWarn: /\[.*WARNING.*\r?\n(?:^\s+.*\r?\n)*/gm,  // log.warning
     logError: /\[.*ERROR.*\r?\n(?:^\s+.*\r?\n)*/gm,  // log.error
