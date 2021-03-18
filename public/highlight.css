@@ -1,29 +1,24 @@
 .logDebug {
 	color: green;
-    text-shadow: 0 0 5px;
 }
 
 .logInfo {
 	color: cyan;
 }
 
-.logWarn .warning {
+.logWarn, .warning {
     color: orange;
-    text-shadow: 0 0 5px;
 }
 
 .logError {
     color: red;
-    text-shadow: 0 0 5px;
 }
 
 .logCritical {
     color: purple;
-    text-shadow: 0 0 5px;
 }
 
 .error {
     color: red;
     font-weight: bold;
-    text-shadow: 0 0 5px;
 }
