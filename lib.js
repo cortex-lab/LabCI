@@ -455,8 +455,8 @@ function getBadgeData(data) {
       switch (data.context) {
          case 'build':
             if (record['status'] === 'error') {
-               report['message'] = 'unknown';
-               report['color'] = 'orange';
+               report['message'] = 'errored';
+               report['color'] = 'red';
             } else {
                report['message'] = (record['status'] === 'success' ? 'passing' : 'failing');
                report['color'] = (record['status'] === 'success' ? 'brightgreen' : 'red');
@@ -464,8 +464,8 @@ function getBadgeData(data) {
             break;
          case 'tests':
             if (record['status'] === 'error') {
-               report['message'] = 'unknown';
-               report['color'] = 'orange';
+               report['message'] = 'errored';
+               report['color'] = 'red';
             } else {
                if (record['statistics']) {
                   let pass = record['statistics']['passed'];

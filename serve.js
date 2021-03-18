@@ -388,7 +388,7 @@ async function buildRoutine(job) {
          task = lib.fullpath(task);  // Ensure absolute path
          return new Promise(function (resolve, reject) {
             // Spawn a process to execute our task
-            const child = cp.spawn(task, [sha, repoPath, logDir], ops);
+            const child = cp.spawn(task, [sha, repoPath, config.dataPath], ops);
             let stdout = '', stderr = '';
             // Pipe output to log file
             child.stdout.pipe(logDump, { end: false });
