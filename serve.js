@@ -453,8 +453,14 @@ async function buildRoutine(job) {
          // For Python, cat from the lost line that doesn't begin with whitespace
          if (!message && errored.stderr.includes('Traceback ')) {
             let errArr = errored.stderr.split(/\r?\n/);
-            let idx = errArr.reverse().findIndex(v => {return v.match('^\\S')});
+            let idx = errArr.reverse().findIndex(v => { return v.match('^\\S') });
             message = errored.stderr.split(/\r?\n/).slice(-idx-1).join(';');
+         }
+         // Check for flake8 errors, capture first
+         if (!message && errored.stderr.match(/E\d{3}/)) {
+            let errArr = errored.stderr.split(/\r?\n/);
+            let err = errArr.filter(v => { return v.match(/E\d{3}/) });
+            message = `${err.length} flake8 error${err.length === 1? '' : 's'}... ${err[0]}`;
          }
          // Otherwise simply use the full stderr (will be truncated)
          if (!message) { message = errored.stderr; }

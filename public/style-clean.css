@@ -7,7 +7,7 @@
     height: 80vh;
     overflow: auto;
     padding: 1rem;
-    color: white;
+    color: black;
     font: .8rem Inconsolata, monospace;
     scrollbar-width: thin;
 }

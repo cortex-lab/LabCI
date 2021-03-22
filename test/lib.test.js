@@ -415,8 +415,8 @@ describe("getBadgeData function", () => {
 
       // Errored
       input['sha'] = ids[3];
-      expected['message'] = 'unknown';
-      expected['color'] = 'orange';
+      expected['message'] = 'errored';
+      expected['color'] = 'red';
       data = lib.getBadgeData(input);
       expect(data).to.deep.equal(expected);
       sandbox.assert.notCalled(queue.add);
