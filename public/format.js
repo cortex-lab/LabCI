@@ -85,7 +85,7 @@ async function updateLog() {
 
     // Apply the regex for styling/highlighting the text
     if (urlParams.get('formatting') !== 'off') {
-        log = log.replace(/\x1b?\[0m/gm, '');  // Remove escape chars
+        log = log.replace(/\x1b?\[\d+m/gm, '');  // Remove ANSI color codes
         for (let style in regExps) {
            log = log.replace(regExps[style], x => toSpan(x, style));
         }

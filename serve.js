@@ -345,6 +345,7 @@ srv.get('/:badge/:repo/:id', async (req, res) => {
  * Build task pipeline.  Takes a list of scripts/functions and builds a promise chain.
  * @param {Object} job - The path of the repository
  * @returns {Promise} - The job routine
+ * TODO Move to lib
  */
 async function buildRoutine(job) {
    const debug = log.extend('pipeline');
@@ -456,9 +457,9 @@ async function buildRoutine(job) {
             let idx = errArr.reverse().findIndex(v => { return v.match('^\\S') });
             message = errored.stderr.split(/\r?\n/).slice(-idx-1).join(';');
          }
-         // Check for flake8 errors, capture first
-         if (!message && errored.stderr.match(/E\d{3}/)) {
-            let errArr = errored.stderr.split(/\r?\n/);
+         // Check for flake8 errors, capture first (NB: flake8 sends output to stdout, not stderr)
+         if (!message && errored.stdout.match(/:\d+:\d+: E\d{3}/)) {
+            let errArr = errored.stdout.split(/\r?\n/);
             let err = errArr.filter(v => { return v.match(/E\d{3}/) });
             message = `${err.length} flake8 error${err.length === 1? '' : 's'}... ${err[0]}`;
          }
