@@ -5,11 +5,11 @@ const regExps = {
     errorStack: /^Traceback.*\r?\n(?:^\s+.*\r?\n)+/gm,  // Error stack
     error: /^\w*(Error|Exception).*\r?\n/gm,  // Error statement
     warning: /\w*Warning:.*\r?\n(?:^\s+.*\r?\n)/gm,  // Warning
-    logDebug: /\[.*DEBUG.*\r?\n(?:^\s+.*\r?\n)*/gm,  // log.debug
-    logInfo: /\[.*INFO.*\r?\n(?:^\s+.*\r?\n)*/gm,  // log.info
-    logWarn: /\[.*WARNING.*\r?\n(?:^\s+.*\r?\n)*/gm,  // log.warning
-    logError: /\[.*ERROR.*\r?\n(?:^\s+.*\r?\n)*/gm,  // log.error
-    logCritical: /\[.*CRITICAL.*\r?\n(?:^\s+.*\r?\n)*/gm,  // log.critical
+    logDebug: /.*DEBUG.*\r?\n(?:^\s+.*\r?\n)*/gm,  // log.debug
+    logInfo: /.*INFO.*\r?\n(?:^\s+.*\r?\n)*/gm,  // log.info
+    logWarn: /.*WARNING.*\r?\n(?:^\s+.*\r?\n)*/gm,  // log.warning
+    logError: /.*ERROR.*\r?\n(?:^\s+.*\r?\n)*/gm,  // log.error
+    logCritical: /.*CRITICAL.*\r?\n(?:^\s+.*\r?\n)*/gm,  // log.critical
     flake8: /^[a-zA-Z\/\\._]+:\d+:\d+: E\d{3} .*$/gm  // flake8 error
 };
 const cursor = '<span class="blinking-cursor">&#9608;</span>';
