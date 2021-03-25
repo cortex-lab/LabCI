@@ -458,9 +458,9 @@ async function buildRoutine(job) {
             message = errored.stderr.split(/\r?\n/).slice(-idx-1).join(';');
          }
          // Check for flake8 errors, capture first (NB: flake8 sends output to stdout, not stderr)
-         if (!message && errored.stdout.match(/:\d+:\d+: E\d{3}/)) {
+         if (!message && errored.stdout.match(/:\d+:\d+: [EWF]\d{3}/)) {
             let errArr = errored.stdout.split(/\r?\n/);
-            let err = errArr.filter(v => { return v.match(/E\d{3}/) });
+            let err = errArr.filter(v => { return v.match(/[EWF]\d{3}/) });
             message = `${err.length} flake8 error${err.length === 1? '' : 's'}... ${err[0]}`;
          }
          // Otherwise simply use the full stderr (will be truncated)
