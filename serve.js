@@ -416,7 +416,7 @@ async function buildRoutine(job) {
                     };
                     callback(proc);
                  });
-            job._child = child;  // Assign the child process to the job
+            job.child = child;  // Assign the child process to the job
          });
       });
    }
@@ -431,7 +431,6 @@ async function buildRoutine(job) {
       let message;  // Error message to pass to job callbacks and to save into records
       // The script that threw the error
       const file = (errored instanceof Error)? errored.path : errored.process.spawnfile;
-      // delete job._child;  // Remove the process from the job data
 
       // Check if the error is a spawn error, this is thrown when spawn itself fails, i.e. due to
       // missing shell script
@@ -483,7 +482,6 @@ async function buildRoutine(job) {
     */
    function updateJob(proc) {
       debug('Job routine complete');
-      // delete job._child;  // Remove process from job data
       // Attempt to update the job data from the JSON records, throw error if this fails
       if (!lib.updateJobFromRecord(job)) {
          job.done(new Error('Failed to return test result'));

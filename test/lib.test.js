@@ -209,14 +209,19 @@ describe('Test updateJobFromRecord:', function() {
 describe('Test startJobTimer:', function() {
     var clock;
 
-    before(() => { clock = sinon.useFakeTimers(); });
+    before(() => {
+       clock = sinon.useFakeTimers();
+       queue.process(() => {});
+       queue.pile = [];
+    });
 
     it('expect process killed', function (done) {
         const childProcess = {
             kill: () => { done(); },
             pid: 10108
         };
-        const job = { data: {process: childProcess} };
+        const job = queue.add({})
+        job.child = childProcess;
         lib.startJobTimer(job);
         // Skip to the end...
         clock.tick(config.timeout + 1);
@@ -225,16 +230,18 @@ describe('Test startJobTimer:', function() {
     it('expect tree-killed', function (done) {
         // Test tree-kill switch.  We can't stub function exports so we'll use a slow ping command
         // and kill it.  Should be relatively consistent across platforms.
+        const job = queue.add({});
         const cmd = 'ping 127.0.0.1 -n 6 > nul';
-        const childProcess = cp.exec(cmd, () => { done(); });
-        childProcess.kill = () => {};  // nop
-        const job = { data: {process: childProcess} };
+        job.child = cp.exec(cmd, () => { done(); });
+        job._child.kill = () => {};  // nop
         lib.startJobTimer(job, true);
         // Skip to the end...
         clock.tick(config.timeout + 1);
     });
 
-    after(() => { clock.restore(); })
+    after(() => { clock.restore(); });
+
+    afterEach(() => { queue.pile = []; });
 });
 
 

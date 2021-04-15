@@ -433,7 +433,7 @@ describe('shields callback', () => {
       request(srv)
          .get(`/coverage/${info.repo}/${SHA}?force=1`)
          .expect('Content-Type', 'application/json')
-         .expect(200)
+         .expect(201)
          .end(function (err, res) {
             scope.isDone();
             if (err) return done(err);
@@ -775,6 +775,7 @@ describe('running tests', () => {
       execEvent = new events.EventEmitter();
       execEvent.stdout = execEvent.stderr = new events.EventEmitter();
       execEvent.stdout.pipe = sandbox.spy();
+      execEvent.exitCode = null; // NB: Must be set before another process is attached to Job
       job = {
          id: 123,
          data: {sha: SHA},
@@ -891,14 +892,17 @@ describe('running tests', () => {
       queue.on('error', _ => {});
       function validate (err, job) {
          expect(err).undefined;
-         expect('process' in job.data).false;
+         expect(job._child).eq(execEvent);
          expect(job.data.status).eq('failure');
          expect(job.data.coverage).approximately(22.1969, 0.001);
          fin();
       }
       sandbox.stub(queue._events, 'finish').value([validate]);
       spawnStub.callsFake(() => {
-         setImmediate(() => { execEvent.emit('exit', 0, null); });
+         setImmediate(() => {
+            execEvent.emit('exit', 0, null);
+            execEvent.exitCode = 0;
+         });
          setImmediate(() => { execEvent.emit('close', 0, null); });
          return execEvent;
       });

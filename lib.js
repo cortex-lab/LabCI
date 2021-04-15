@@ -302,8 +302,8 @@ function startJobTimer(job, kill_children=false) {
    return setTimeout(() => {
       console.log('Max test time exceeded');
       log(kill_children? 'Killing all processes' : 'Ending test process');
-      let pid = job.data.process.pid;
-      job.data.process.kill();
+      let pid = job._child.pid;
+      job._child.kill();
       if (kill_children) { kill(pid); }
    }, timeout);
 }

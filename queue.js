@@ -1,5 +1,4 @@
 var EventEmitter = require('events').EventEmitter
-const assert = require('assert')
 
 /**
  * Queue module allows one to add tasks to a queue which are processed sequentially as FILO.
@@ -45,15 +44,18 @@ class Queue extends EventEmitter {
   /**
    * Create new job and add to queue.
    * @param {Object} data - Data object to be stored in {@link Job}.
+   * @return {Job} - The newly created job.
    */
   add(data) {
     // generate 16 digit job id
     let d = Date.now().toString()
     let r = Math.floor(Math.random() * 1000).toString()
     let id = Number((r + d).padEnd(16, '0'))
-    this.pile.push(new Job(id, data)); // add to bottom of pile
+    const job = new Job(id, data); // create job
+    this.pile.push(job); // add to bottom of pile
     console.log('Job added (' + this.pile.length + ' on pile)')
     this.next(); // Start next job if idle
+    return job;
   }
 
   /**
@@ -135,6 +137,20 @@ class Job extends EventEmitter {
         this.running = true;
       }
     }
+  }
+
+  /**
+   * Set child attribute.  Checks that the job is currently running and that any previous child
+   * process is not currently running.
+   * @param {ChildProcess} process - Value to set running.
+   */
+  set child(process) {
+    if (!this.running) {
+      throw new Error('Cannot add child process while Job not running');
+    } else if (this._child && this._child.exitCode === null) {
+      throw new Error('Job can only be associated with one running process');
+    }
+    this._child = process;
   }
 
 }
