@@ -1,10 +1,25 @@
 # Changelog
 
-## [Latest](https://github.com/cortex-lab/matlab-ci/commits/master) [2.2.1]
+## [Latest](https://github.com/cortex-lab/matlab-ci/commits/master) [3.0.0]
+
+## Added
+
+ - any number of tasks may be added for a job, which are then executed in series 
+ - now serves a Webpage that shows the log in realtime
+ - added a jobs endpoint to see which jobs are on the pile
+ - stderr is piped to log file
+ - flake8 errors are neatly captured in GitHub status description
+ 
+ ## Modified
+ 
+ - records endpoint can return pending jobs
+ - tests badge endpoint returns 'error' on errored tests instead of 'unknown' 
+ 
+## [2.2.1]
 
 ## Modified
 
- - fix error where github even incorrectly rejected
+ - fix error where github event incorrectly rejected
  - fix bug incorrect log name when endpoint called with branch name
  
 ## [2.2.0]
