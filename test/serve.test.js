@@ -19,6 +19,50 @@ const APP_ID = process.env.GITHUB_APP_IDENTIFIER;
 const ENDPOINT = 'logs';  // The URL endpoint for fetching status check details
 const SHA = 'cabe27e5c8b8cb7cdc4e152f1cf013a89adc7a71'
 
+/**
+ * This fixture ensures the `token` variable is not null.
+ * Must be called before any other nock fixtures or else they will be reset.
+ */
+async function setToken() {
+   const scope = nock('https://api.github.com');
+   scope.get(`/repos/${process.env.REPO_OWNER}/${process.env.REPO_NAME}/installation`)
+        .reply(201, {id: APP_ID});
+   scope.post(`/app/installations/${APP_ID}/access_tokens`)
+        .reply(201, {
+           token: '#t0k3N',
+           permissions: {
+              checks: "write",
+              metadata: "read",
+              contents: "read"
+           },
+        });
+   await setAccessToken();
+   nock.cleanAll()
+}
+
+/**
+* This fixture injects the default null token via setAccessToken.
+*/
+async function resetToken() {
+   const token_default = {'tokenType': null};
+   const sandbox = sinon.createSandbox({
+      useFakeTimers: {
+        now: new Date(3000, 1, 1, 0, 0)
+    }})
+   sandbox.stub(appAuth, 'createAppAuth').returns(async () => token_default);
+   try { await setAccessToken(); } catch (_) {}
+   sandbox.restore();
+}
+
+/**
+* This fixture injects the default null token via setAccessToken.
+*/
+async function mockToken(sandbox) {
+   await setToken();  // Ensure App id set
+   const token = {token: '#t0k3N'};
+   return (sandbox || sinon).stub(appAuth, 'createAppAuth').returns(async () => token);
+}
+
 
 /**
  * This tests 'setAccessToken' which handles the app authentication.
@@ -28,22 +72,7 @@ describe('setAccessToken', () => {
    var clock;  // Our clock mock for replicable JWT
    const expiry = new Date(); // Date of token expiry
 
-   /**
-   * This fixture injects the default null token via setAccessToken.
-   */
-   async function resetToken() {
-      const token_default = {'tokenType': null};
-      const sandbox = sinon.createSandbox({
-         useFakeTimers: {
-           now: new Date(3000, 1, 1, 0, 0)
-       }})
-      sandbox.stub(appAuth, 'createAppAuth').returns(async () => token_default);
-      try { await setAccessToken(); } catch (_) {}
-      sandbox.restore();
-   }
-
    before(async function () {
-      await resetToken();
       expiry.setTime(expiry.getTime() + 60e3);  // 60s in the future
       // https://runkit.com/gr2m/reproducable-jwt
       clock = sinon.useFakeTimers({
@@ -52,8 +81,8 @@ describe('setAccessToken', () => {
       });
    });
 
-   beforeEach(function() {
-      // Mock for App.installationAccessToken
+   beforeEach(async function() {
+      await resetToken();
       scope = nock('https://api.github.com', {
          reqheaders: {
             accept: 'application/vnd.github.machine-man-preview+json',
@@ -77,7 +106,7 @@ describe('setAccessToken', () => {
            });
 
       setAccessToken().then(function () {
-         scope.isDone();
+         scope.done();
          done();
       });
    });
@@ -89,7 +118,7 @@ describe('setAccessToken', () => {
            .matchHeader('authorization', `bearer ${token}`)
            .reply(201, {id: APP_ID})
       scope.post(`/app/installations/${APP_ID}/access_tokens`)
-           .twice()  // Should be called twice in a row
+           .once()  // Should be called once
            .matchHeader('authorization', `bearer ${token}`)
            .reply(201, {
               token: '#t0k3N',
@@ -103,7 +132,7 @@ describe('setAccessToken', () => {
 
       setAccessToken().then(async function () {
          await setAccessToken();
-         scope.isDone();
+         scope.done();
          done();
       });
    });
@@ -127,12 +156,16 @@ describe('setAccessToken', () => {
 
       setAccessToken().then(async function () {
          await setAccessToken();
-         scope.isDone();
+         scope.done();
          done();
       });
    });
 
-   after(function(done) {
+   afterEach(() => {
+      nock.cleanAll();
+   });
+
+   after(async function() {
       clock.restore();
       resetToken().then(done);
    })
@@ -147,15 +180,14 @@ describe('updateStatus', () => {
    var spy;  // A spy for authentication
    var data;  // Some job data to update the status with
 
-   beforeEach(function() {
+   beforeEach(async function() {
       // Mock for App.installationAccessToken
       scope = nock('https://api.github.com', {
          reqheaders: {
             accept: 'application/vnd.github.machine-man-preview+json',
          }
       });
-      const token = {token: '#t0k3N'};
-      spy = sinon.stub(appAuth, 'createAppAuth').returns(async () => token);
+      spy = await mockToken();
       data = {
          sha: SHA,
          owner: 'okonkwe',
@@ -165,13 +197,15 @@ describe('updateStatus', () => {
       };
    });
 
+   afterEach(() => {
+      nock.cleanAll();
+   });
+
    it('updateStatus should post to given endpoint', (done) => {
-      scope.get(`/repos/${process.env.REPO_OWNER}/${process.env.REPO_NAME}/installation`)
-           .reply(201, {id: APP_ID});
       scope.post(`/repos/${data['owner']}/${data['repo']}/statuses/${data['sha']}`).reply(201);
       updateStatus(data).then(() => {
          expect(spy.calledOnce).true;
-         scope.isDone();
+         scope.done();
          done();
       });
    });
@@ -188,8 +222,6 @@ describe('updateStatus', () => {
                 body.description.length <= 140 &&
                 body.context === data.context;
       };
-      scope.get(`/repos/${process.env.REPO_OWNER}/${process.env.REPO_NAME}/installation`)
-           .reply(201, {id: APP_ID});
       scope.post(uri, requestBodyMatcher)
            .matchHeader('authorization', 'token #t0k3N')
            .reply(201);
@@ -197,7 +229,7 @@ describe('updateStatus', () => {
      // Run
       updateStatus(data, url).then(() => {
          expect(spy.calledOnce).true;
-         scope.isDone();
+         scope.done();
          done();
       });
    });
@@ -234,28 +266,7 @@ describe('Github event handler callback', () => {
    var evt;  // A payload event loaded from fixtures
    var sandbox;  // Sandbox for spying on queue
 
-   /**
-    * This fixture ensures the `token` variable is not null.
-    */
-   async function setToken() {
-      scope = nock('https://api.github.com');
-      scope.get(`/repos/${process.env.REPO_OWNER}/${process.env.REPO_NAME}/installation`)
-           .reply(201, {id: APP_ID});
-      scope.post(`/app/installations/${APP_ID}/access_tokens`)
-           .reply(201, {
-              token: '#t0k3N',
-              permissions: {
-                 checks: "write",
-                 metadata: "read",
-                 contents: "read"
-              },
-           });
-      await setAccessToken();
-      nock.cleanAll()
-   }
-
-   before(async function () {
-      await setToken();
+   before(function () {
       scope = nock('https://api.github.com', {
          reqheaders: {
             accept: 'application/vnd.github.machine-man-preview+json',
@@ -263,16 +274,23 @@ describe('Github event handler callback', () => {
       });
    });
 
-   beforeEach(function () {
+   beforeEach(async function () {
       queue.process(async (_job, _done) => {})  // nop
       sandbox = sinon.createSandbox()
+      await mockToken(sandbox);
       evt = JSON.parse(fs.readFileSync('./test/fixtures/pull_payload.json'));
    });
 
    it('test callback adds pending jobs', (done) => {
+      let nCalls = 0;
       let pr = evt.pull_request;
       let uri = `/repos/${pr.head.repo.owner.login}/${pr.head.repo.name}/statuses/${pr.head.sha}`;
-      scope.post(uri, body => { return body.state === 'pending'})
+      let testable = body => {
+         nCalls += 1;
+         if (nCalls === 2) { done(); }
+         return body.state === 'pending';
+      };
+      scope.post(uri, testable)
            .twice()
            .reply(201, {});
       sandbox.spy(queue);
@@ -341,6 +359,8 @@ describe('Github event handler callback', () => {
       queue.pile = [];
       sandbox.restore();
    });
+
+   after(() => { nock.cleanAll(); });
 });
 
 
@@ -365,6 +385,7 @@ describe('shields callback', () => {
 
    after(function () {
       delete queue.process;
+      nock.cleanAll();
       queue.pile = [];  // ensure queue is empty
    });
 
@@ -384,7 +405,7 @@ describe('shields callback', () => {
          .expect('Content-Type', 'application/json')
          .expect(200)
          .end(function (err, res) {
-            scope.isDone();
+            scope.done();
             if (err) return done(err);
             expect(res.body).deep.keys([
                'schemaVersion',
@@ -404,7 +425,7 @@ describe('shields callback', () => {
          .get(`/coverage/${info.repo}/${info.branch}`)
          .expect(404)
          .end(function (err) {
-            scope.isDone();
+            scope.done();
             if (err) return done(err);
             done();
          });
@@ -435,7 +456,7 @@ describe('shields callback', () => {
          .expect('Content-Type', 'application/json')
          .expect(201)
          .end(function (err, res) {
-            scope.isDone();
+            scope.done();
             if (err) return done(err);
             expect(res.body).deep.keys([
                'schemaVersion',
@@ -474,7 +495,7 @@ describe('logs endpoint', () => {
 
    beforeEach(function () {
       scope.get(`/repos/${process.env.REPO_OWNER}/${process.env.REPO_NAME}/commits/${SHA}`)
-        .reply(200, { sha: SHA });
+           .reply(200, { sha: SHA });
    })
 
    it('expect HTML log', (done) => {
@@ -512,6 +533,14 @@ describe('logs endpoint', () => {
             done();
          });
    });
+
+   afterEach(() => {
+      nock.cleanAll();
+   });
+
+   after(() => {
+      sinon.restore();
+   });
 });
 
 
@@ -526,6 +555,10 @@ describe('fetchCommit', () => {
       scope = nock('https://api.github.com');
    });
 
+   after(function () {
+      nock.cleanAll();
+   });
+
    it('expect full SHA from short id', (done) => {
       const id = SHA.slice(0, 7);
       scope.get(`/repos/${process.env.REPO_OWNER}/${process.env.REPO_NAME}/commits/${id}`)
@@ -534,6 +567,7 @@ describe('fetchCommit', () => {
       fetchCommit(id)
          .then(id => {
             expect(id).eq(SHA);
+            scope.done();
             done();
          });
    });
@@ -551,6 +585,7 @@ describe('fetchCommit', () => {
       fetchCommit(branch, true, repo)
          .then(id => {
             expect(id).eq(SHA);
+            scope.done();
             done();
          });
    });
@@ -575,6 +610,11 @@ describe('records endpoint', () => {
       delete queue.process;
    });
 
+   after(function () {
+      nock.cleanAll();
+   });
+
+
    it('expect JSON log', (done) => {
       scope.get(`/repos/${process.env.REPO_OWNER}/${process.env.REPO_NAME}/commits/${SHA}`)
            .reply(200, { sha: SHA });
@@ -587,6 +627,7 @@ describe('records endpoint', () => {
             if (err) return done(err);
             const record = JSON.parse(res.text);
             expect(record.commit).eq(SHA);
+            scope.done();
             done();
          });
    });
@@ -604,6 +645,7 @@ describe('records endpoint', () => {
             if (err) return done(err);
             const record = JSON.parse(res.text);
             expect(record.commit).eq(SHA);
+            scope.done();
             done();
          });
    });
@@ -619,6 +661,7 @@ describe('records endpoint', () => {
          .end(function (err, res) {
             if (err) return done(err);
             expect(res.text).contains('not found');
+            scope.done();
             done();
          });
    });
@@ -672,6 +715,7 @@ describe('records endpoint', () => {
             if (err) return done(err);
             const record = JSON.parse(res.text);
             expect(record.commit).eq(SHA);
+            scope.done();
             done();
          });
    });
@@ -742,7 +786,7 @@ describe('coverage endpoint', () => {
       request(srv)
          .get(`/${ENDPOINT}/coverage/${SHA}/`)  // trailing slash essential
          .expect(200)
-         .end(function (err, res) {
+         .end(function (err) {
             err? done(err) : done();
          });
    });
@@ -929,18 +973,11 @@ describe('running tests', () => {
  */
 describe('srv github/', () => {
    var scope;  // Our server mock
-   var clock;  // Our clock mock for replicable JWT
+   var spy;  // Token AppAuth spy
 
-   before(function() {
-      // https://runkit.com/gr2m/reproducable-jwt
-      clock = sinon.useFakeTimers({
-         now: 0,
-         toFake: ['Date']
-      });
-   });
-
-   beforeEach(function() {
+   beforeEach(async function() {
       // Mock for App.installationAccessToken
+      spy = await mockToken();
       scope = nock('https://api.github.com', {
          reqheaders: {
             accept: 'application/vnd.github.machine-man-preview+json',
@@ -949,31 +986,16 @@ describe('srv github/', () => {
    });
 
    it('expect skipped', (done) => {
-      scope.get(`/repos/${process.env.REPO_OWNER}/${process.env.REPO_NAME}/installation`).reply(200);
-      scope.post(`/app/installations/${APP_ID}/access_tokens`).reply(200);
-
       request(srv)
          .post(`/github`)  // trailing slash essential
          .set({'X-GitHub-Event': 'issues'})
-         .end(function (err, res) {
-            expect(scope.isDone()).not.true;
+         .end(function (err) {
+            expect(spy.called).false;
             err ? done(err) : done();
          });
    });
 
    it('expect error caught', (done) => {
-      scope.get(`/repos/${process.env.REPO_OWNER}/${process.env.REPO_NAME}/installation`)
-           .reply(201, {id: APP_ID});
-      scope.post(`/app/installations/${APP_ID}/access_tokens`)
-           .reply(201, {
-              token: '#t0k3N',
-              permissions: {
-                 checks: "write",
-                 metadata: "read",
-                 contents: "read"
-              },
-           });
-
       request(srv)
          .post(`/github`)  // trailing slash essential
          .set({
@@ -1011,8 +1033,9 @@ describe('srv github/', () => {
       nock.cleanAll()
    });
 
-   after(function () {
-      clock.restore();
+   afterEach(function () {
+      spy.restore();
+      nock.cleanAll();
    });
 
 });
@@ -1027,13 +1050,9 @@ describe('queue finish callback', () => {
    var scope;  // Our server mock
    var spy;  // A spy for authentication
 
-   before(function() {
-      // Mock for App.installationAccessToken
+   before(async function() {
       scope = nock('https://api.github.com');
-      const token = {token: '#t0k3N'};
-      spy = sinon.stub(appAuth, 'createAppAuth').returns(async () => token);
-      scope.get(`/repos/${process.env.REPO_OWNER}/${process.env.REPO_NAME}/installation`)
-           .reply(201, {id: APP_ID});
+      spy = await mockToken();
    });
 
    it('test error handling', (done) => {
@@ -1060,5 +1079,7 @@ describe('queue finish callback', () => {
 
    after(function() {
       delete queue.process;
+      nock.cleanAll();
+      spy.restore();
    });
 });
