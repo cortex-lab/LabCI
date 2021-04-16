@@ -21,7 +21,7 @@
 const fs = require('fs'),
     xml2js = require('xml2js'),
     crypto = require('crypto'),
-    assert = require('assert').strict,
+    //assert = require('assert').strict,
     parser = new xml2js.Parser(),
     path = require('path');
 var timestamp, cb;
@@ -102,10 +102,11 @@ function coverage(path, repo, sha, submodules, callback) {
   cb = callback; // @fixme Making callback global feels hacky
   fs.readFile(path, function(err, data) { // Read in XML file
     if (err) {throw err}  // @fixme deal with file not found errors
+    // @fixme deal with XML parse callback errors
     parser.parseString(data, function (err, result) { // Parse XML
         // Extract root code path
         const rootPath = (result.coverage.sources[0].source[0] || process.env.REPO_PATH).replace(/[\/|\\]+$/, '')
-        assert(rootPath.endsWith(process.env.REPO_NAME), 'Incorrect source code repository')
+        //assert(rootPath.endsWith(process.env.REPO_NAME), 'Incorrect source code repository')
         timestamp = new Date(result.coverage.$.timestamp*1000); // Convert UNIX timestamp to Date object
         let classes = []; // Initialize classes array
 
