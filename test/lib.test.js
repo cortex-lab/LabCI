@@ -1,6 +1,8 @@
 const fs = require('fs');
 const cp = require('child_process');
+const events = require('events');
 const shell = require('shelljs');
+const path = require('path');
 
 const config = require('../config/config').settings
 const assert = require('assert')
@@ -8,6 +10,7 @@ const sinon = require('sinon');
 const expect = require('chai').expect
 const lib = require('../lib');
 const queue = require('../lib').queue;
+const { stdErr } = require('./fixtures/static');
 
 ids = [
     'cabe27e5c8b8cb7cdc4e152f1cf013a89adc7a71',
@@ -242,6 +245,172 @@ describe('Test startJobTimer:', function() {
     after(() => { clock.restore(); });
 
     afterEach(() => { queue.pile = []; });
+});
+
+
+/**
+ * This tests the buildRoutine function.
+ */
+describe('running tests', () => {
+   var sandbox;  // Sandbox for spying on queue
+   var spawnStub;  // Main fileExec stub
+   var execEvent;
+   var job;
+
+   before(() => {
+      sandbox = sinon.createSandbox();
+   });
+
+   beforeEach(function () {
+      spawnStub = sandbox.stub(cp, 'spawn');
+      execEvent = new events.EventEmitter();
+      execEvent.stdout = execEvent.stderr = new events.EventEmitter();
+      execEvent.stdout.pipe = sandbox.spy();
+      execEvent.exitCode = null; // NB: Must be set before another process is attached to Job
+      job = {
+         id: 123,
+         data: {sha: ids[0]},
+         done: () => {}
+      };
+   });
+
+   it('expect default routine', fin => {
+      // Create a job field with no routine field
+      job.done = validate;
+      let log = path.join(config.dataPath, 'reports', ids[0], 'std_output-cabe27e.log');
+      let tasks = config['routines']['*'].map(x => path.resolve(path.join(__dirname, '..', x)));
+      spawnStub.callsFake(() => {
+         setImmediate(() => { execEvent.emit('exit', 0, null); });
+         setImmediate(() => { execEvent.emit('close', 0, null); });
+         return execEvent;
+      });
+      lib.buildRoutine(job);
+      function validate(err) {
+         for (let fn of tasks) {
+            spawnStub.calledWith(fn, [ids[0], config.repo, config.dataPath]);
+         }
+         expect(spawnStub.calledTwice).true;
+         expect(err).undefined;
+         expect(fs.existsSync(log)).true;
+         fin();
+      }
+   });
+
+   it('test missing file error', fin => {
+      job.done = validate;
+
+      // Raise a file not found error
+      spawnStub.callsFake(() => {
+         const err = new Error('ENOENT');
+         err.code = 'ENOENT';
+         err.path = config['routines']['*'][0];
+         setImmediate(() => { execEvent.emit('error', err, null); });
+         return execEvent;
+      });
+      sandbox.stub(fs.promises, 'writeFile');
+      sandbox.stub(fs.promises, 'readFile').resolves('[]');
+      lib.buildRoutine(job).finally(fin);
+      function validate(err) {
+         expect(spawnStub.calledOnce).true;
+         expect(err.message).matches(/File ".*?" not found/);
+      }
+   });
+
+   it('runtests parses MATLAB error', (fin) => {
+      var err;
+      const errmsg = 'Error in MATLAB_function line 23';
+      job.done = (e) => { err = e; };
+
+      // Exit with a MATLAB error
+      spawnStub.callsFake(() => {
+         setImmediate(() => { execEvent.stderr.emit('data', errmsg) });
+         setImmediate(() => { execEvent.emit('exit', 1, null); });
+         setImmediate(() => { execEvent.emit('close', 1, null); });
+         return execEvent;
+      });
+      sandbox.stub(fs.promises, 'readFile').resolves('[]');
+      sandbox.stub(fs.promises, 'writeFile').callsFake((db_path, rec) => {
+         expect(db_path).eq(config.dbFile);
+         expect(rec).contains(errmsg);
+         expect(spawnStub.calledOnce).true;
+         expect(err.message).to.have.string(errmsg);
+         fin();
+      })
+      lib.buildRoutine(job);
+   });
+
+   it('runtests parses Python error', (fin) => {
+      var err;
+      job.done = (e) => { err = e; };
+
+      // Exit with a Python error
+      spawnStub.callsFake(() => {
+         setImmediate(() => { execEvent.stderr.emit('data', stdErr) });
+         setImmediate(() => { execEvent.emit('exit', 1, null); });
+         setImmediate(() => { execEvent.emit('close', 1, null); });
+         return execEvent;
+      });
+      sandbox.stub(fs.promises, 'readFile').resolves('[]');
+      sandbox.stub(fs.promises, 'writeFile').callsFake((db_path, rec) => {
+         expect(db_path).eq(config.dbFile);
+         let errmsg = 'FileNotFoundError: Invalid data root folder ';
+         expect(rec).contains(errmsg);
+         expect(spawnStub.calledOnce).true;
+         expect(err.message).to.have.string(errmsg);
+         fin();
+      })
+      lib.buildRoutine(job);
+   });
+
+   it('should open and close log', fin => {
+      const logSpy = {
+         close: sandbox.stub(),
+         on: () => {}
+      }
+      sandbox.stub(fs, 'createWriteStream').returns(logSpy);
+      sandbox.stub(fs, 'mkdir');
+      logSpy.close.callsFake(fin);
+      spawnStub.callsFake(() => {
+         setImmediate(() => { execEvent.emit('exit', 0, null); });
+         setImmediate(() => { execEvent.emit('close', 0, null); });
+         return execEvent;
+      });
+      lib.buildRoutine(job);
+   });
+
+   it('expect loads test record', fin => {
+      queue.process(lib.buildRoutine);
+      queue.on('error', _ => {});
+      function validate (err, job) {
+         expect(err).undefined;
+         expect(job._child).eq(execEvent);
+         expect(job.data.status).eq('failure');
+         expect(job.data.coverage).approximately(22.1969, 0.001);
+         fin();
+      }
+      sandbox.stub(queue._events, 'finish').value([validate]);
+      spawnStub.callsFake(() => {
+         setImmediate(() => {
+            execEvent.emit('exit', 0, null);
+            execEvent.exitCode = 0;
+         });
+         setImmediate(() => { execEvent.emit('close', 0, null); });
+         return execEvent;
+      });
+      queue.add({sha: ids[0]})
+   });
+
+   afterEach(function (done) {
+      queue.pile = [];
+      delete queue.process;
+      sandbox.verifyAndRestore();
+      const logDir = path.join(config.dataPath, 'reports');
+      fs.rmdir(logDir, {recursive: true}, err => {
+         if (err) throw err;
+         done()
+      });
+   });
+
 });
 
 

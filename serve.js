@@ -4,7 +4,6 @@
  */
 const fs = require('fs');
 const path = require('path');
-const cp = require('child_process');
 
 const express = require('express');
 const srv = express();
@@ -339,159 +338,6 @@ srv.get('/:badge/:repo/:id', async (req, res) => {
 });
 
 
-///////////////////// QUEUE EVENTS /////////////////////
-
-/**
- * Build task pipeline.  Takes a list of scripts/functions and builds a promise chain.
- * @param {Object} job - The path of the repository
- * @returns {Promise} - The job routine
- * TODO Move to lib
- */
-async function buildRoutine(job) {
-   const debug = log.extend('pipeline');
-   const data = job.data;
-   // Get task list from job data, or from context if missing
-   const tasks = data.routine? lib.ensureArray(data.routine) : lib.context2routine(data.context);
-   // Throw an error if there is no routine defined for this job
-   if (!tasks) { throw new Error(`No routine defined for context ${data.context}`); }
-
-   debug('Building routine for job #%g', job.id);
-   // variables shared between functions
-   const repoPath = lib.getRepoPath(data.repo);
-   const sha = data['sha'];
-   const logDir = path.join(config.dataPath, 'reports', sha);
-   const logName = path.join(logDir, `std_output-${lib.shortID(sha)}.log`);
-   await fs.promises.mkdir(logDir, { recursive: true });
-   const logDump = fs.createWriteStream(logName, { flags: 'w' });
-   logDump.on('close', () => debug('Closing log file'));
-   const ops = config.shell? {'shell': config.shell} : {};
-
-   const init = () => debug('Executing pipeline for job #%g', job.id);
-   const routine = tasks.reduce(applyTask, Promise.resolve().then(init));
-   return routine
-      .then(updateJob)
-      .catch(handleError)
-      .finally(() => logDump.close())
-
-   /**
-    * Build task pipeline.  Should recursively call functions to produce chain of spawn callbacks.
-    * Must return promises.
-    * @param {Promise} pipeline - The promise chain to add to
-    * @param {String} task - The script
-    * @param {Number} idx - The current index in the pipeline
-    * @param {Array} taskList - An array of functions or scripts to execute consecutively
-    * @returns {Promise} - The job routine with `task` added to it.
-    */
-   function applyTask(pipeline, task, idx, taskList) {
-      return pipeline.then(() => {
-         debug('Starting task "%s" (%i/%i)', task, idx + 1, taskList.length);
-         const timer = lib.startJobTimer(job, config.kill_children === true);
-         task = lib.fullpath(task);  // Ensure absolute path
-         return new Promise(function (resolve, reject) {
-            // Spawn a process to execute our task
-            const child = cp.spawn(task, [sha, repoPath, config.dataPath], ops);
-            let stdout = '', stderr = '';
-            // Pipe output to log file
-            child.stdout.pipe(logDump, { end: false });
-            child.stderr.pipe(logDump, { end: false });
-            // Keep output around for reporting errors
-            child.stdout.on('data', chunk => { stdout += chunk; });
-            child.stderr.on('data', chunk => { stderr += chunk; });
-            // error emitted called when spawn itself fails, or process could not be killed
-            child.on('error', err => {
-                     debug('clearing job timer');
-                     clearTimeout(timer);
-                     reject(err);})
-                 .on('exit', () => {
-                    debug('clearing job timer');
-                    clearTimeout(timer);})
-                 .on('close', (code, signal) => {
-                    const callback = (code === 0)? resolve : reject;
-                    const proc = {
-                       code: code,
-                       signal: signal,
-                       stdout: stdout,
-                       stderr: stderr,
-                       process: child
-                    };
-                    callback(proc);
-                 });
-            job.child = child;  // Assign the child process to the job
-         });
-      });
-   }
-
-   /**
-    * Handle any errors raised during the job routine.  If any process exits with a non-zero code
-    * this handler will divine the error, update the record and trigger the relevant job callbacks.
-    * @param {Object} errored - The stdout, stderr, ChildProcess, exit code and signal,
-    * or a childProcess Error object.
-    */
-   function handleError(errored) {
-      let message;  // Error message to pass to job callbacks and to save into records
-      // The script that threw the error
-      const file = (errored instanceof Error)? errored.path : errored.process.spawnfile;
-
-      // Check if the error is a spawn error, this is thrown when spawn itself fails, i.e. due to
-      // missing shell script
-      if (errored instanceof Error) {
-         if (errored.code === 'ENOENT') {
-            // Note the missing file (not necessarily the task script that's missing)
-            message = file? `File "${file}" not found` : 'No such file or directory';
-         } else {
-            message = `${errored.code} - Failed to spawn ${file}`;
-         }
-      // Check if the process was killed (we'll assume by the test timeout callback)
-      } else if (errored.process.killed || errored.signal === 'SIGTERM') {
-         message = `Tests stalled after ~${(config.timeout / 60000).toFixed(0)} min`;
-      } else {  // Error raised by process; dig through stdout for reason
-         debug('error from test function %s', file)
-         // Isolate error from log
-         // For MATLAB return the line that begins with 'Error'
-         let fn = (str) => { return str.startsWith('Error in \'') };
-         message = errored.stderr.split(/\r?\n/).filter(fn).join(';');
-         // For Python, cat from the lost line that doesn't begin with whitespace
-         if (!message && errored.stderr.includes('Traceback ')) {
-            let errArr = errored.stderr.split(/\r?\n/);
-            let idx = errArr.reverse().findIndex(v => { return v.match('^\\S') });
-            message = errored.stderr.split(/\r?\n/).slice(-idx-1).join(';');
-         }
-         // Check for flake8 errors, capture first (NB: flake8 sends output to stdout, not stderr)
-         if (!message && errored.stdout.match(/:\d+:\d+: [EWF]\d{3}/)) {
-            let errArr = errored.stdout.split(/\r?\n/);
-            let err = errArr.filter(v => { return v.match(/[EWF]\d{3}/) });
-            message = `${err.length} flake8 error${err.length === 1? '' : 's'}... ${err[0]}`;
-         }
-         // Otherwise simply use the full stderr (will be truncated)
-         if (!message) { message = errored.stderr; }
-      }
-      // Save error into records for future reference.
-      let report = {
-         'commit': sha,
-         'results': message,
-         'status': 'error',
-         'description': 'Error running ' + (file || 'test routine')
-      };
-      lib.saveTestRecords(report).then(() => { debug('updated test records'); });
-      job.done(new Error(message));  // Propagate
-   }
-
-    /**
-    * Update the job and mark complete.  Called when job routine completes without error.
-    * @param {Object} proc - The stdout, stderr, ChildProcess, exit code and signal
-    */
-   function updateJob(proc) {
-      debug('Job routine complete');
-      // Attempt to update the job data from the JSON records, throw error if this fails
-      if (!lib.updateJobFromRecord(job)) {
-         job.done(new Error('Failed to return test result'));
-      } else {
-         job.done(); // All good
-      }
-   }
-}
-
-
 ///////////////////// OTHER /////////////////////
 
 /**
@@ -699,6 +545,4 @@ queue.on('finish', (err, job) => { // On job end post result to API
      });
 });
 
-module.exports = {
-   updateStatus, srv, handler, setAccessToken, eventCallback, fetchCommit, buildRoutine
-}
+module.exports = { updateStatus, srv, handler, setAccessToken, eventCallback, fetchCommit };

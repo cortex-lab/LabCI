@@ -5,8 +5,8 @@
  * @todo add abort option for when new commits added
  * @todo rename context to description and use context to track posts
  */
-const { openTunnel, queue, shortCircuit} = require('./lib');
-const { srv, handler, eventCallback, buildRoutine} = require('./serve');
+const { openTunnel, queue, shortCircuit, buildRoutine} = require('./lib');
+const { srv, handler, eventCallback} = require('./serve');
 const config = require("./config/config").settings;
 
 
