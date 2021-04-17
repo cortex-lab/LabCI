@@ -89,11 +89,6 @@ async function updateLog() {
     // Apply the regex for styling/highlighting the text
     // http://ascii-table.com/ansi-escape-sequences-vt-100.php
     if (urlParams.get('formatting') !== 'off') {
-        for (let line of log.split('/n')) {
-            if (line.endsWith('[A') || line.endsWith('[2K')) {
-                // Ignore line if not last
-            }
-        }
         log = log.replace(/\x1b?\[\d+m/gm, '');  // Remove ANSI color codes
         for (let style in regExps) {
            log = log.replace(regExps[style], x => toSpan(x, style));

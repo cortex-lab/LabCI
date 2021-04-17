@@ -321,17 +321,16 @@ async function buildRoutine(job) {
    const debug = log.extend('pipeline');
    const data = job.data;
    // Get task list from job data, or from context if missing
-   const context = data.context;
-   const tasks = data.routine? ensureArray(data.routine) : context2routine(context);
+   const tasks = data.routine? ensureArray(data.routine) : context2routine(data.context);
    // Throw an error if there is no routine defined for this job
-   if (!tasks) { throw new Error(`No routine defined for context ${context}`); }
+   if (!tasks) { throw new Error(`No routine defined for context ${data.context}`); }
 
    debug('Building routine for job #%g', job.id);
    // variables shared between functions
    const repoPath = getRepoPath(data.repo);
    const sha = data['sha'];
    const logDir = path.join(config.dataPath, 'reports', sha);
-   const logName = path.join(logDir, `std_output-${shortID(sha)}_${context.split('/').pop()}.log`);
+   const logName = path.join(logDir, `std_output-${shortID(sha)}.log`);
    await fs.promises.mkdir(logDir, { recursive: true });
    const logDump = fs.createWriteStream(logName, { flags: 'w' });
    logDump.on('close', () => debug('Closing log file'));
