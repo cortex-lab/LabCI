@@ -254,7 +254,14 @@ srv.get(`/log/:id`, function (req, res) {
  */
 srv.get(`/${ENDPOINT}/raw/:id`, function (req, res) {
    let id = lib.shortID(req.params.id);
-   let log_only = (req.query.type || '').startsWith('log')
+   let log_only = (req.query.type || '').startsWith('log');
+   // let default_context = '';
+   // for (let x of config.events) {
+   //    if (x.checks) {
+   //       default_context = '_' + (Array.isArray(x.checks)? x.checks.pop(): x.checks);
+   //       break;
+   //    }
+   // }
    let filename = log_only? `test_output.log` : `std_output-${id}.log`;
    let jobStatus = 'finished';
    for (let job of queue.pile) {
@@ -281,6 +288,8 @@ srv.get(`/${ENDPOINT}/raw/:id`, function (req, res) {
    res.sendFile(filename, options, function (err) {
       if (err) {
          console.error('Failed to send log: ', err);
+         res.statusCode = 404;
+         res.send(`${req.params.id} not found`);
       } else {
          log('Sent:', filename);
       }

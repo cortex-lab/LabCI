@@ -478,56 +478,107 @@ describe('logs endpoint', () => {
    var stub;  // Our fs stub
    var logData;  // The text in our log
    var scope;  // Our server mock
+   var HTMLlog;  // Our HTML log page
 
    before(function () {
+      queue.process(() => {});  // nop
       const log_path = path.join(config.dataPath, 'reports', SHA);
       logData = ['hello world', 'foobar'];
       scope = nock('https://api.github.com');
-      stub = sinon
-         .stub(fs, 'readFile')
-         .withArgs(path.join(log_path, `std_output-${SHA.substr(0,7)}.log`), 'utf8')
-         .yieldsAsync(null, logData[0])
-         .withArgs(path.join(log_path, 'test_output.log'), 'utf8')
-         .yieldsAsync(null, logData[1]);
+      let file = path.join(log_path, `std_output-${SHA.substr(0,7)}.log`);
+      fs.mkdirSync(log_path, { recursive: true });
+      fs.writeFileSync(file, logData[0]);
+      fs.writeFileSync(path.join(log_path, 'test_output.log'), logData[1]);
+      HTMLlog = fs.readFileSync('./public/log.html', 'utf8');
    });
 
    beforeEach(function () {
       scope.get(`/repos/${process.env.REPO_OWNER}/${process.env.REPO_NAME}/commits/${SHA}`)
            .reply(200, { sha: SHA });
+      queue.pile = [];
    })
 
-   it('expect HTML log', (done) => {
+   it('expect HTML log', done => {
       request(srv)
-         .get(`/${ENDPOINT}/${SHA}`)
+         .get(`/log/${SHA}`)
          .expect(200)
          .end(function (err, res) {
             if (err) return done(err);
+            expect(res.text).eq(HTMLlog);
+            done();
+         });
+   });
+
+   it('expect redirect to log', done => {
+      request(srv)
+         .get(`/${ENDPOINT}/${SHA}`)
+         .expect(301)
+         .end(function (err, res) {
+            if (err) return done(err);
+            expect(res.text).contains('Moved');
+            expect(res.header.location).eq('/log/' + SHA);
+            done();
+         });
+   });
+
+   it('expect raw log', done => {
+      request(srv)
+         .get(`/${ENDPOINT}/raw/${SHA}`)
+         .expect(200)
+         .expect('X-CI-JobStatus', 'finished')
+         .end(function (err, res) {
+            if (err) return done(err);
             expect(res.text).contains(logData[0]);
-            expect(res.text).to.match(/^<html.*>.+<\/html>$/);
+            done();
+         });
+   });
+
+   it('expect running status', done => {
+      queue.add({sha: SHA});
+      request(srv)
+         .get(`/${ENDPOINT}/raw/${SHA}`)
+         .expect(200)
+         .expect('X-CI-JobStatus', 'running')
+         .end(function (err, res) {
+            if (err) return done(err);
+            expect(res.text).contains(logData[0]);
+            done();
+         });
+   });
+
+   it('expect queued status', done => {
+      queue.add({sha: SHA});
+      queue.pile[0].running = false;
+      request(srv)
+         .get(`/${ENDPOINT}/raw/${SHA}`)
+         .expect(200)
+         .expect('X-CI-JobStatus', 'queued')
+         .end(function (err, res) {
+            if (err) return done(err);
+            expect(res.text).contains('waiting');
             done();
          });
    });
 
    it('expect type param', (done) => {
       request(srv)
-         .get(`/${ENDPOINT}/${SHA}?type=logger`)
+         .get(`/${ENDPOINT}/raw/${SHA}?type=logger`)
          .expect(200)
          .end(function (err, res) {
             if (err) return done(err);
             expect(res.text).contains(logData[1]);
-            expect(res.text).to.match(/^<html.*>.+<\/html>$/);
             done();
          });
    });
 
-   it('expect not found', (done) => {
-      sinon.restore();
+   it('expect not found', done => {
+      let id = '1c33a6e2ac7d7fc098105b21a702e104e09767cf';
       request(srv)
-         .get(`/${ENDPOINT}/${SHA}`)
+         .get(`/${ENDPOINT}/raw/${id}`)
          .expect(404)
          .end(function (err, res) {
             if (err) return done(err);
-            expect(res.text).contains(`${SHA} not found`)
+            expect(res.text).contains(`${id} not found`)
             done();
          });
    });
@@ -536,9 +587,17 @@ describe('logs endpoint', () => {
       nock.cleanAll();
    });
 
-   after(() => {
+   after(done => {
       sinon.restore();
+      queue.pile = [];
+      delete queue.process;
+      const logDir = path.join(config.dataPath, 'reports');
+      fs.rmdir(logDir, {recursive: true}, err => {
+         if (err) throw err;
+         done()
+      });
    });
+
 });
 
 
