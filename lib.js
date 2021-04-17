@@ -321,16 +321,17 @@ async function buildRoutine(job) {
    const debug = log.extend('pipeline');
    const data = job.data;
    // Get task list from job data, or from context if missing
-   const tasks = data.routine? ensureArray(data.routine) : context2routine(data.context);
+   const context = data.context;
+   const tasks = data.routine? ensureArray(data.routine) : context2routine(context);
    // Throw an error if there is no routine defined for this job
-   if (!tasks) { throw new Error(`No routine defined for context ${data.context}`); }
+   if (!tasks) { throw new Error(`No routine defined for context ${context}`); }
 
    debug('Building routine for job #%g', job.id);
    // variables shared between functions
    const repoPath = getRepoPath(data.repo);
    const sha = data['sha'];
    const logDir = path.join(config.dataPath, 'reports', sha);
-   const logName = path.join(logDir, `std_output-${shortID(sha)}.log`);
+   const logName = path.join(logDir, `std_output-${shortID(sha)}_${context.split('/').pop()}.log`);
    await fs.promises.mkdir(logDir, { recursive: true });
    const logDump = fs.createWriteStream(logName, { flags: 'w' });
    logDump.on('close', () => debug('Closing log file'));
@@ -525,7 +526,7 @@ function compareCoverage(job) {
     curr.commit = curr.sha;  // rename field
     records = [curr, loadTestRecords(job.data.base)];
   }
-  log('The following records were found: %O', records);
+  // log('The following records were found: %O', records);
   const hasCoverage = records.every(o => (o.coverage > 0));
 
   // Check if any errored or failed to update coverage

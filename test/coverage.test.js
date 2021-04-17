@@ -24,10 +24,10 @@ describe('Test coverage parser:', function() {
         };
         sandbox = sinon.createSandbox();
         sandbox
-            .stub(fs, 'readFile')
+            .stub(fs, 'readFileSync')
             .withArgs(sinon.match((x) => x.replace('\\', '/').startsWith('C:/Hello-World')))
-            .yieldsAsync(null, code);
-        fs.readFile.callThrough();
+            .returns(code);
+        fs.readFileSync.callThrough();
     })
 
     it('Check loading MATLAB', function (done) {

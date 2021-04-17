@@ -65,6 +65,9 @@ async function updateLog() {
     if (lastModified) {
         options['headers'] = { 'If-Modified-Since': lastModified };
     }
+    if (urlParams.has('type')) {
+        options['query'] = {'type': urlParams.get('type')};
+    }
 
     let response = await fetch(url, options);
     if (response.status === 304) {
@@ -84,7 +87,13 @@ async function updateLog() {
     log = escapeHTML(log);
 
     // Apply the regex for styling/highlighting the text
+    // http://ascii-table.com/ansi-escape-sequences-vt-100.php
     if (urlParams.get('formatting') !== 'off') {
+        for (let line of log.split('/n')) {
+            if (line.endsWith('[A') || line.endsWith('[2K')) {
+                // Ignore line if not last
+            }
+        }
         log = log.replace(/\x1b?\[\d+m/gm, '');  // Remove ANSI color codes
         for (let style in regExps) {
            log = log.replace(regExps[style], x => toSpan(x, style));

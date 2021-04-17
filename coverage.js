@@ -33,13 +33,11 @@ var token = process.env.COVERALLS_TOKEN;
  * @param {String} path - Path to the source code file.
  * @returns {Object} key `Hash` contains MD5 digest string of file; `count` contains number of lines in source file
  */
-async function md5(path) {
-  var count = 0;
-  var hash = crypto.createHash('md5'); // Creating hash object
-  await fs.readFile(path, 'utf-8', (err, buf) => { // Read in file
-     count = buf.split(/\r\n|\r|\n/).length; // Count the number of lines
-     hash.update(buf, 'utf-8'); // Update hash
-  });
+function md5(path) {
+  const hash = crypto.createHash('md5'); // Creating hash object
+  const buf = fs.readFileSync(path, 'utf-8'); // Read in file
+  const count = buf.split(/\r\n|\r|\n/).length; // Count the number of lines
+  hash.update(buf, 'utf-8'); // Update hash
 
   return {hash: hash.digest('hex'), count: count};
 }
@@ -63,7 +61,7 @@ async function formatCoverage(classList, srcPath, sha) {
   await Promise.all(classList.map(async c => {
     let file = {}; // Initialize file object
     let fullPath = c.$.filename.startsWith(srcPath)? c.$.filename : path.join(srcPath, c.$.filename);
-    digest = await md5(fullPath); // Create digest and line count for file
+    digest = md5(fullPath); // Create digest and line count for file
     let lines = new Array(digest.count).fill(null); // Initialize line array the size of source code file
     c.lines[0].line.forEach(ln => {
       let n = Number(ln.$.number);
