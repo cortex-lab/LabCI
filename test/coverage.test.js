@@ -1,10 +1,8 @@
 const fs = require('fs');
-const assert = require('assert');
 const path = require('path');
 const sinon = require('sinon');
 const expect = require('chai').expect;
 
-const config = require('../config/config').settings;
 const Coverage = require('../coverage');
 
 const dummy_id = '1c33a6e2ac7d7fc098105b21a702e104e09767cf';
@@ -26,10 +24,10 @@ describe('Test coverage parser:', function() {
         };
         sandbox = sinon.createSandbox();
         sandbox
-            .stub(fs, 'readFileSync')
+            .stub(fs, 'readFile')
             .withArgs(sinon.match((x) => x.replace('\\', '/').startsWith('C:/Hello-World')))
-            .returns(code);
-        fs.readFileSync.callThrough();
+            .yieldsAsync(null, code);
+        fs.readFile.callThrough();
     })
 
     it('Check loading MATLAB', function (done) {
@@ -43,19 +41,4 @@ describe('Test coverage parser:', function() {
     });
 
     afterEach(function () { sandbox.restore(); });
-});
-
-
-xdescribe('Test md5 file hash:', function() {
-    // Check NODE_ENV is correctly set, meaning our imported settings will be test ones
-    before(function () {
-        assert(process.env.NODE_ENV.startsWith('test'), 'Test run outside test env');
-    });
-
-    it('MD5 should return correct hash', function (done) {
-        let test_path = './path/to/file.mat';
-        let stub = sinon.stub(fs, 'readFileSync')
-            .withArgs(test_path)
-            .returns('line1\nline2\n\rline3\n\rline4');
-    });
 });

@@ -163,7 +163,7 @@ describe('setAccessToken', () => {
       nock.cleanAll();
    });
 
-   after(async function() {
+   after(function(done) {
       clock.restore();
       resetToken().then(done);
    })

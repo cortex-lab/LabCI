@@ -21,10 +21,9 @@
 const fs = require('fs'),
     xml2js = require('xml2js'),
     crypto = require('crypto'),
-    //assert = require('assert').strict,
     parser = new xml2js.Parser(),
     path = require('path');
-var timestamp, cb;
+var timestamp;
 
 var token = process.env.COVERALLS_TOKEN;
 
@@ -33,13 +32,15 @@ var token = process.env.COVERALLS_TOKEN;
  * Loads file containing source code, returns a hash and line count
  * @param {String} path - Path to the source code file.
  * @returns {Object} key `Hash` contains MD5 digest string of file; `count` contains number of lines in source file
- * @todo Make asynchronous
  */
-function md5(path) {
+async function md5(path) {
+  var count = 0;
   var hash = crypto.createHash('md5'); // Creating hash object
-  var buf = fs.readFileSync(path, 'utf-8'); // Read in file
-  var count = buf.split(/\r\n|\r|\n/).length; // Count the number of lines
-  hash.update(buf, 'utf-8'); // Update hash
+  await fs.readFile(path, 'utf-8', (err, buf) => { // Read in file
+     count = buf.split(/\r\n|\r|\n/).length; // Count the number of lines
+     hash.update(buf, 'utf-8'); // Update hash
+  });
+
   return {hash: hash.digest('hex'), count: count};
 }
 
@@ -50,22 +51,19 @@ function md5(path) {
  * @param {Array} classList - An array of class objects from the loaded XML file.
  * @param {String} srcPath - The root path of the code repository.
  * @param {String} sha - The commit SHA for this coverage test.
- * @param {function} callback - The callback function to run when complete.  Takes object containing array of source
- * code files and their code coverage
  * @returns {Object}
  * @todo Generalize path default
- * @fixme Doesn't work with python's coverage
  */
-function formatCoverage(classList, srcPath, sha) {
+async function formatCoverage(classList, srcPath, sha) {
   var job = {};
   var sourceFiles = [];
   var digest;
-  srcPath = typeof srcPath != "undefined" ? srcPath : process.env.HOMEPATH; // default to home dir
+  srcPath = typeof srcPath != "undefined" ? srcPath : process.env.REPO_PATH; // default to home dir
   // For each class, create file object containing array of lines covered and add to sourceFile array
-  classList.forEach( async c => {
+  await Promise.all(classList.map(async c => {
     let file = {}; // Initialize file object
     let fullPath = c.$.filename.startsWith(srcPath)? c.$.filename : path.join(srcPath, c.$.filename);
-    digest = md5(fullPath); // Create digest and line count for file
+    digest = await md5(fullPath); // Create digest and line count for file
     let lines = new Array(digest.count).fill(null); // Initialize line array the size of source code file
     c.lines[0].line.forEach(ln => {
       let n = Number(ln.$.number);
@@ -76,16 +74,16 @@ function formatCoverage(classList, srcPath, sha) {
     file.source_digest = digest.hash;
     file.coverage = lines; // file.coverage[0] == line 1
     sourceFiles.push(file);
-  });
+  }));
 
-  job.repo_token = token; // env secret token?
+  job.repo_token = token; // env secret token
   job.service_name = `coverage/${process.env.USERDOMAIN}`;
   // The associated pull request ID of the build. Used for updating the status and/or commenting.
   job.service_pull_request = '';
   job.source_files = sourceFiles;
   job.commit_sha = sha;
   job.run_at = timestamp; // "2013-02-18 00:52:48 -0800"
-  cb(job);
+  return job;
 }
 
 /**
@@ -99,14 +97,12 @@ function formatCoverage(classList, srcPath, sha) {
  * @see {@link https://github.com/cobertura/cobertura/wiki|Cobertura Wiki}
  */
 function coverage(path, repo, sha, submodules, callback) {
-  cb = callback; // @fixme Making callback global feels hacky
   fs.readFile(path, function(err, data) { // Read in XML file
     if (err) {throw err}  // @fixme deal with file not found errors
     // @fixme deal with XML parse callback errors
     parser.parseString(data, function (err, result) { // Parse XML
         // Extract root code path
         const rootPath = (result.coverage.sources[0].source[0] || process.env.REPO_PATH).replace(/[\/|\\]+$/, '')
-        //assert(rootPath.endsWith(process.env.REPO_NAME), 'Incorrect source code repository')
         timestamp = new Date(result.coverage.$.timestamp*1000); // Convert UNIX timestamp to Date object
         let classes = []; // Initialize classes array
 
@@ -131,7 +127,7 @@ function coverage(path, repo, sha, submodules, callback) {
         });
         // Select module
         let modules = byModule[repo] || byModule['main'];
-        formatCoverage(modules, rootPath, callback);
+        formatCoverage(modules, rootPath, sha).then(callback);
      });
   });
 }
