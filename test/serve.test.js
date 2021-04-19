@@ -308,7 +308,6 @@ describe('Github event handler callback', () => {
          expect(queue.pile.pop().data.force).true;
 
          scope.isDone();
-         done();
       });
    });
 
@@ -475,7 +474,6 @@ describe('shields callback', () => {
  * it as HTML.
  */
 describe('logs endpoint', () => {
-   var stub;  // Our fs stub
    var logData;  // The text in our log
    var scope;  // Our server mock
    var HTMLlog;  // Our HTML log page
