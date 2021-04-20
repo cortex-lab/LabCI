@@ -32,12 +32,24 @@ describe('Test coverage parser:', function() {
 
     it('Check loading MATLAB', function (done) {
         let xmlPath = path.resolve('test', 'fixtures', 'CoverageResults.mat.xml')
-        Coverage(xmlPath, 'Hello-World', dummy_id, [], obj => testable(obj, done) );
+        Coverage(xmlPath, 'Hello-World', dummy_id, [])
+           .then(obj => testable(obj, done) );
     });
 
     it('Check loading Python', function (done) {
         let xmlPath = path.resolve('test', 'fixtures', 'CoverageResults.py.xml')
-        Coverage(xmlPath, 'Hello-World', dummy_id, [], obj => testable(obj, done) );
+        Coverage(xmlPath, 'Hello-World', dummy_id, [])
+           .then(obj => testable(obj, done) );
+    });
+
+    it('Check missing file', function (done) {
+        let xmlPath = path.resolve('test', 'fixtures', 'nofile.xml')
+        testable = (err, done) => {
+            expect(err.code).eq('ENOENT');
+            done();
+        }
+        Coverage(xmlPath, 'Hello-World', dummy_id, [])
+           .catch(err => testable(err, done) );
     });
 
     afterEach(function () { sandbox.restore(); });

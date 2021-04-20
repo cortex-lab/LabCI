@@ -156,7 +156,7 @@ async function saveTestRecords(r) {
  * @param {Object} job - Job object which is being processed.
  * @returns {boolean} - true if record was found
  */
-function updateJobFromRecord(job) {
+async function updateJobFromRecord(job) {
     let log = _log.extend('updateJobFromRecord');
     log('Loading test records for head commit %g', job.data['sha']);
     let rec = loadTestRecords(job.data['sha']);  // Load test result from json log
@@ -170,7 +170,7 @@ function updateJobFromRecord(job) {
     job.data['coverage'] = ('coverage' in rec)? rec['coverage'] : null;
     if (!job.data['coverage'] && rec['status'] !== 'error') {
        log('Coverage missing, computing from XML');
-       computeCoverage(job);  // Attempt to load from XML
+       await computeCoverage(job);  // Attempt to load from XML  FIXME deal with failure
     } else if ((job.data.context || '').startsWith('coverage')) {
        log('Comparing coverage to base commit');
        compareCoverage(job);  // If this test was to ascertain coverage, call comparison function
@@ -217,7 +217,7 @@ function addParam(url, ...args) {
  * @param {Object} job - Job object which is being processed.
  * @param {Function} func - The tests function to run, e.g. `buildRoutine`.
  */
-function shortCircuit(job, func=null) {
+async function shortCircuit(job, func=null) {
    // job.data contains the custom data passed when the job was created
    // job.id contains id of this job.
    let log = _log.extend('shortCircuit');
@@ -232,7 +232,7 @@ function shortCircuit(job, func=null) {
    // If lazy, load records to check whether we already have the results saved
    if (job.data.force === false) {  // NB: Strict equality; force by default
       _log('Updating job data directly from record for job #%g', job.id);
-      if (updateJobFromRecord(job)) { return job.done(); }  // No need to run tests; skip to complete routine
+      if (await updateJobFromRecord(job)) { return job.done(); }  // No need to run tests; skip to complete routine
    }
 
    // Go ahead and prepare to run tests
@@ -450,10 +450,10 @@ async function buildRoutine(job) {
     * Update the job and mark complete.  Called when job routine completes without error.
     * @param {Object} proc - The stdout, stderr, ChildProcess, exit code and signal
     */
-   function updateJob(proc) {
+   async function updateJob(proc) {
       debug('Job routine complete');
       // Attempt to update the job data from the JSON records, throw error if this fails
-      if (!updateJobFromRecord(job)) {
+      if (! await updateJobFromRecord(job)) {
          job.done(new Error('Failed to return test result'));
       } else {
          job.done(); // All good
@@ -474,7 +474,7 @@ function computeCoverage(job) {
   console.log('Updating coverage for job #' + job.id)
   const xmlPath = path.join(config.dataPath, 'reports', job.data.sha, 'CoverageResults.xml')
   const modules = listSubmodules(process.env.REPO_PATH);
-  Coverage(xmlPath, job.data.repo, job.data.sha, modules, obj => {
+  return Coverage(xmlPath, job.data.repo, job.data.sha, modules).then(obj => {
     // Digest and save percentage coverage
     let misses = 0, hits = 0;
     for (let file of obj.source_files) {
@@ -488,17 +488,16 @@ function computeCoverage(job) {
     records = ensureArray(records); // Ensure array
     for (let o of records) { if (o.commit === job.data.sha) { o.coverage = coverage; break; }}
     // Save object
-    fs.writeFile(config.dbFile, JSON.stringify(records), function(err) {
-    if (err) {
-      job.status = 'error'
-      job.description = 'Failed to compute coverage from XML'
-      console.log(err);
-      return;
-    }
-    // If this test was to ascertain coverage, call comparison function
-    let toCompare = (job.data.context || '').startsWith('coverage') && job.data.base;
-    if (toCompare) { compareCoverage(job); }
+    return fs.promises.writeFile(config.dbFile, JSON.stringify(records)).then(() => {
+      console.log('Coverage saved into records');
+      // If this test was to ascertain coverage, call comparison function
+      let toCompare = (job.data.context || '').startsWith('coverage') && job.data.base;
+      if (toCompare) { return compareCoverage(job); }
     });
+  }).catch(err => {
+     job.status = 'error'
+     job.description = 'Failed to compute coverage from XML'  // Add error msg
+     console.error(err);
   });
 }
 

@@ -190,15 +190,15 @@ describe('Test updateJobFromRecord:', function() {
         };
    })
 
-    it('expect no record found', function () {
+    it('expect no record found', async function () {
         job.data.sha = ids[2];
-        const updated = lib.updateJobFromRecord(job);
+        const updated = await lib.updateJobFromRecord(job);
         expect(updated).false;
     });
 
-    it('expect updated', function () {
+    it('expect updated', async function () {
         job.data.sha = ids[0];
-        const updated = lib.updateJobFromRecord(job);
+        const updated = await lib.updateJobFromRecord(job);
         expect(updated).true;
         expect(job.data).deep.keys(['sha', 'status', 'description', 'coverage']);
     });

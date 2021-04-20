@@ -13,7 +13,8 @@
  ## Modified
  
  - records endpoint can return pending jobs
- - tests badge endpoint returns 'error' on errored tests instead of 'unknown' 
+ - tests badge endpoint returns 'error' on errored tests instead of 'unknown'
+ - job waits for coverage calculation and updating of records before finishing
  
 ## [2.2.1]
 

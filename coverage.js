@@ -91,14 +91,12 @@ async function formatCoverage(classList, srcPath, sha) {
  * @param {String} sha - The commit SHA for this coverage test
  * @param {String} repo - The repo to which the commit belongs
  * @param {Array} submodules - A list of submodules for separating coverage into
- * @param {function} callback - The callback function to run when complete
  * @see {@link https://github.com/cobertura/cobertura/wiki|Cobertura Wiki}
  */
-function coverage(path, repo, sha, submodules, callback) {
-  fs.readFile(path, function(err, data) { // Read in XML file
-    if (err) {throw err}  // @fixme deal with file not found errors
-    // @fixme deal with XML parse callback errors
-    parser.parseString(data, function (err, result) { // Parse XML
+function coverage(path, repo, sha, submodules) {
+  return fs.promises.readFile(path)  // Read in XML file
+     .then(parser.parseStringPromise) // Parse XML
+     .then(result => {
         // Extract root code path
         const rootPath = (result.coverage.sources[0].source[0] || process.env.REPO_PATH).replace(/[\/|\\]+$/, '')
         timestamp = new Date(result.coverage.$.timestamp*1000); // Convert UNIX timestamp to Date object
@@ -125,9 +123,8 @@ function coverage(path, repo, sha, submodules, callback) {
         });
         // Select module
         let modules = byModule[repo] || byModule['main'];
-        formatCoverage(modules, rootPath, sha).then(callback);
+        return formatCoverage(modules, rootPath, sha);
      });
-  });
 }
 
 
