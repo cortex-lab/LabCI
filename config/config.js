@@ -42,7 +42,7 @@ testing = {
         pull_request: {
             checks: ["coverage", "continuous-integration"],
             actions: ["opened", "synchronize"],
-            ref_ignore: ["documentation", "gh-pages"]
+            ref_ignore: ["documentation", "gh-pages"],
         }
     },
     routines: {

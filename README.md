@@ -49,6 +49,8 @@ Some extra optional settings:
 
 - `shell` - optional shell to use when calling scripts (see `child_process.execFile` options).
 - `events:event:ref_include` - same as `ref_ignore`, but a pass list instead of block list.
+- `events:event:files_ignore` - list of files whose changes can be ignored.  If only ignored files
+are changed checks are skipped.
 - `kill_children` - if present and true, `tree-kill` is used to kill the child processes, required 
 if shell/batch script forks test process (e.g. a batch script calls python).
 - `repos` - an array of submodules or map of modules to their corresponding paths.

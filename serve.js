@@ -418,6 +418,14 @@ async function eventCallback (event) {
     throw new lib.APIError('Generic webhook events not supported (installation ID invalid)');
   }
 
+  let filesGET = {  // Data for querying changes files
+     owner: process.env['REPO_OWNER'], // event.payload.repository.owner.login
+     repo: event.payload.repository.name,  // The repository name
+     headers: {
+        accept: "application/vnd.github.machine-man-preview+json"
+     }
+  };
+
   // Harvest data payload depending on event type
   switch(eventType) {
   case 'pull_request':
@@ -430,11 +438,19 @@ async function eventCallback (event) {
                  || (pr.base.repo.owner.login !== process.env['REPO_OWNER'])
                  || (pr.head.repo.name !== pr.base.repo.name);
     if (isFork) { throw ReferenceError('Forked PRs not supported; check config file') }
+    if (event.payload.action === 'synchronize') {
+       filesGET['base'] = event.payload.before;
+       filesGET['head'] = event.payload.after;
+    } else {
+       filesGET['pull_number'] = pr.number;
+    }
     break;
   case 'push':
     ref = event.payload.ref;
     job_template['sha'] = event.payload.head_commit.id || event.payload.after;  // Run tests for head commit only
     job_template['base'] = event.payload.before;
+    filesGET['base'] = event.payload.before;
+    filesGET['head'] = event.payload.head_commit.id || event.payload.after;
     break;
   default: // Shouldn't get this far
     throw new TypeError(`event "${event.event}" not supported`)
@@ -474,6 +490,25 @@ async function eventCallback (event) {
      // No checks to perform
      debug('No checks set in config');
      return;
+  }
+
+  // If some files changes ignored, check if we can skip
+  if (todo.files_ignore) {
+     debug('Checking for changed files');
+     let pattern = lib.ensureArray(todo.files_ignore).join('|');
+     try {
+        let fileURI = (eventType === 'push' || event.payload.action === 'synchronize') ?
+           'GET /repos/:owner/:repo/compare/:base...:head' :
+           'GET /repos/:owner/:repo/pulls/:pull_number/files';
+        let {data} = await request(fileURI, filesGET);
+        let files = data.files || data;
+        if (files.every(x => x.filename.match(pattern))) {
+           return;
+        }
+     } catch (err) {
+        console.log('Failed to query changed files');
+        console.error(err);
+     }
   }
 
   // For each check we update it's status and add a job to the queue

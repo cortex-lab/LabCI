@@ -263,6 +263,7 @@ describe('Github event handler callback', () => {
    var scope;  // Our server mock
    var evt;  // A payload event loaded from fixtures
    var sandbox;  // Sandbox for spying on queue
+   const _events = JSON.parse(JSON.stringify(config['events']));  // Deep clone events
 
    before(function () {
       scope = nock('https://api.github.com', {
@@ -282,15 +283,29 @@ describe('Github event handler callback', () => {
    it('test callback adds pending jobs', (done) => {
       let nCalls = 0;
       let pr = evt.pull_request;
-      let uri = `/repos/${pr.head.repo.owner.login}/${pr.head.repo.name}/statuses/${pr.head.sha}`;
+      let post_uri = `/repos/${pr.head.repo.owner.login}/${pr.head.repo.name}/statuses/${pr.head.sha}`;
       let testable = body => {
          nCalls += 1;
          if (nCalls === 2) { done(); }
          return body.state === 'pending';
       };
-      scope.post(uri, testable)
+      scope.post(post_uri, testable)
            .twice()
            .reply(201, {});
+
+      // Ignore files check
+      config.events['pull_request']['files_ignore'] = 'file1.txt';
+
+      const get_uri = `/repos/${pr.head.repo.owner.login}/${pr.head.repo.name}/pulls/${pr.number}/files`;
+      const payload = {
+         files: [
+            { filename: 'README.md' },
+            { filename: 'file1.txt' }
+         ]
+      }
+      scope.get(get_uri)
+           .reply(200, payload);
+
       sandbox.spy(queue);
       eventCallback({payload: evt, event: 'pull_request'}).then(function() {
          expect(queue.pile.length).eq(2);  // Two jobs should have been added
@@ -352,8 +367,76 @@ describe('Github event handler callback', () => {
       });
    });
 
+   it('test files ignore', async () => {
+      // Tests push event
+      let p = {
+         ref: 'foo',
+         head_commit: { id: SHA },
+         before: evt.pull_request.base.sha,
+         repository: evt.repository,
+         installation: evt.installation
+      };
+      config.events['push']['files_ignore'] = [
+         '.*.md',
+         'file1.txt'
+      ];
+
+      // Tests pull request synchronize
+      evt.action = 'synchronize';
+      evt.before = p.before;
+      evt.after = SHA;
+      config.events['pull_request']['files_ignore'] = config.events['push']['files_ignore'];
+
+      // Tests pull request synchronize
+      const uri = `/repos/${p.repository.owner.login}/${p.repository.name}/compare/${p.before}...${SHA}`;
+      const payload = {
+         files: [
+            { filename: 'README.md' },
+            { filename: 'file1.txt' }
+         ]
+      }
+      scope.get(uri)
+           .twice()
+           .reply(200, payload);
+
+      sandbox.spy(queue);
+      await eventCallback({payload: p, event: 'push'});
+      sandbox.assert.notCalled(queue.add);
+
+      await eventCallback({payload: evt, event: 'pull_request'});
+      sandbox.assert.notCalled(queue.add);
+      scope.isDone();
+   });
+
+   it('expect catches error on get files', (done) => {
+      var nCalls = 0;
+      let pr = evt.pull_request;
+      let post_uri = `/repos/${pr.head.repo.owner.login}/${pr.head.repo.name}/statuses/${pr.head.sha}`;
+      let testable = body => {
+         nCalls += 1;
+         if (nCalls === 2) { done(); }
+         return body.state === 'pending';
+      };
+      scope.post(post_uri, testable)
+           .twice()
+           .reply(201, {});
+
+      // Ignore files check
+      const get_uri = `/repos/${pr.head.repo.owner.login}/${pr.head.repo.name}/pulls/${pr.number}/files`;
+      scope.get(get_uri)
+           .reply(404, {});
+
+      sandbox.spy(queue);
+      eventCallback({payload: evt, event: 'pull_request'}).then(function() {
+         expect(queue.pile.length).eq(2);  // Two jobs should have been added
+         sandbox.assert.calledTwice(queue.add);
+         scope.isDone();
+      });
+   });
+
    afterEach(function () {
       queue.pile = [];
+      config.events = _events;
       sandbox.restore();
    });
 
@@ -368,6 +451,7 @@ describe('Github event handler callback', () => {
 describe('shields callback', () => {
    var scope;  // Our server mock
    var info;  // URI parameters
+   var _routines = JSON.parse(JSON.stringify(config.routines));
 
    before(function () {
       scope = nock('https://api.github.com');
@@ -384,6 +468,10 @@ describe('shields callback', () => {
       delete queue.process;
       nock.cleanAll();
       queue.pile = [];  // ensure queue is empty
+   });
+
+   afterEach(function () {
+      config.routines = _routines;
    });
 
    it('expect coverage response', (done) => {
@@ -429,7 +517,8 @@ describe('shields callback', () => {
    });
 
    // In order for this to work we need to clear the routine defaults from the settings
-   xit('expect context not found', done => {
+   it('expect context not found', done => {
+      delete config.routines;
       request(srv)
          .get(`/unknown/${info.repo}/${info.branch}`)
          .expect(404)

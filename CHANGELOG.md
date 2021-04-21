@@ -9,6 +9,7 @@
  - added a jobs endpoint to see which jobs are on the pile
  - stderr is piped to log file
  - flake8 errors are neatly captured in GitHub status description
+ - param to skip checks when only ignored files changed
  
  ## Modified
  
