@@ -10,6 +10,7 @@
  - stderr is piped to log file
  - flake8 errors are neatly captured in GitHub status description
  - param to skip checks when only ignored files changed
+ - param to skip draft PR event checks 
  
  ## Modified
  

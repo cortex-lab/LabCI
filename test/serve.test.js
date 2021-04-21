@@ -286,7 +286,24 @@ describe('Github event handler callback', () => {
       let post_uri = `/repos/${pr.head.repo.owner.login}/${pr.head.repo.name}/statuses/${pr.head.sha}`;
       let testable = body => {
          nCalls += 1;
-         if (nCalls === 2) { done(); }
+         if (nCalls === 2) {
+            expect(queue.pile.length).eq(2);  // Two jobs should have been added
+            let data = queue.pile.pop().data;  // Last added
+            let context = config.events.pull_request.checks;
+            expect(data.sha).eq(pr.head.sha);  // Check head commit set
+            expect(data.base).eq(pr.base.sha);  // Check base commit set
+            expect(data.force).not.true;  // Check force is false (the previous job will save its results)
+            expect(data.owner).eq(pr.head.repo.owner.login);  // Check repo owner set
+            expect(data.repo).eq(pr.head.repo.name);  // Check repo name set
+            expect(data.routine).eq(config['routines']['*']);  // Check routine
+
+            expect(data.context.startsWith(context.pop())).true;
+            sandbox.assert.calledTwice(queue.add);
+            expect(queue.pile.pop().data.force).true;
+
+            scope.isDone();
+            done();
+         }
          return body.state === 'pending';
       };
       scope.post(post_uri, testable)
@@ -307,23 +324,7 @@ describe('Github event handler callback', () => {
            .reply(200, payload);
 
       sandbox.spy(queue);
-      eventCallback({payload: evt, event: 'pull_request'}).then(function() {
-         expect(queue.pile.length).eq(2);  // Two jobs should have been added
-         let data = queue.pile.pop().data;  // Last added
-         let context = config.events.pull_request.checks;
-         expect(data.sha).eq(pr.head.sha);  // Check head commit set
-         expect(data.base).eq(pr.base.sha);  // Check base commit set
-         expect(data.force).not.true;  // Check force is false (the previous job will save its results)
-         expect(data.owner).eq(pr.head.repo.owner.login);  // Check repo owner set
-         expect(data.repo).eq(pr.head.repo.name);  // Check repo name set
-         expect(data.routine).eq(config['routines']['*']);  // Check routine
-
-         expect(data.context.startsWith(context.pop())).true;
-         sandbox.assert.calledTwice(queue.add);
-         expect(queue.pile.pop().data.force).true;
-
-         scope.isDone();
-      });
+      eventCallback({payload: evt, event: 'pull_request'});
    });
 
    it('test event type error', (done) => {
@@ -412,9 +413,15 @@ describe('Github event handler callback', () => {
       var nCalls = 0;
       let pr = evt.pull_request;
       let post_uri = `/repos/${pr.head.repo.owner.login}/${pr.head.repo.name}/statuses/${pr.head.sha}`;
+      config.events['pull_request']['files_ignore'] = 'file1.txt';
       let testable = body => {
          nCalls += 1;
-         if (nCalls === 2) { done(); }
+         if (nCalls === 2) {
+            expect(queue.pile.length).eq(2);  // Two jobs should have been added
+            sandbox.assert.calledTwice(queue.add);
+            scope.isDone();
+            done();
+         }
          return body.state === 'pending';
       };
       scope.post(post_uri, testable)
@@ -427,16 +434,85 @@ describe('Github event handler callback', () => {
            .reply(404, {});
 
       sandbox.spy(queue);
+      eventCallback({payload: evt, event: 'pull_request'});
+   });
+
+   it('expect skips on empty checks list', done => {
+      config.events.pull_request.checks = null;
+      sandbox.spy(queue);
       eventCallback({payload: evt, event: 'pull_request'}).then(function() {
-         expect(queue.pile.length).eq(2);  // Two jobs should have been added
-         sandbox.assert.calledTwice(queue.add);
+         sandbox.assert.notCalled(queue.add);
          scope.isDone();
+         done();
       });
+   });
+
+   it('expect skips on missing event', done => {
+      delete config.events['pull_request'];
+      sandbox.spy(queue);
+      eventCallback({payload: evt, event: 'pull_request'}).then(function() {
+         sandbox.assert.notCalled(queue.add);
+         scope.isDone();
+         done();
+      });
+   });
+
+   it('expect skips draft PR', done => {
+      config.events.pull_request.ignore_drafts = true;
+      evt.pull_request.draft = true;
+      sandbox.spy(queue);
+      eventCallback({payload: evt, event: 'pull_request'}).then(function() {
+         sandbox.assert.notCalled(queue.add);
+         scope.isDone();
+         done();
+      });
+   });
+
+   it('expect skips when action not in config', done => {
+      config.events.pull_request.actions = ['synchronize'];
+      sandbox.spy(queue);
+      eventCallback({payload: evt, event: 'pull_request'}).then(function() {
+         sandbox.assert.notCalled(queue.add);
+         scope.isDone();
+         done();
+      });
+   });
+
+   it('expect error on wrong install id', done => {
+      evt.installation.id = 456;
+      sandbox.spy(queue);
+      eventCallback({payload: evt, event: 'pull_request'}).catch(function(err) {
+         sandbox.assert.notCalled(queue.add);
+         expect(err).instanceOf(APIError);
+         scope.isDone();
+         done();
+      });
+   });
+
+   it('expect handles set pending error', done => {
+      sandbox.spy(queue);
+      var nCalls = 0;
+      const pr = evt.pull_request;
+      const post_uri = `/repos/${pr.head.repo.owner.login}/${pr.head.repo.name}/statuses/${pr.head.sha}`;
+      const testable = body => {
+         nCalls += 1;
+         if (nCalls === 2) {
+            sandbox.assert.calledTwice(queue.add);
+            scope.isDone();
+            done();
+         }
+         return body.state === 'pending';
+      };
+      scope.post(post_uri, testable)
+           .twice()
+           .reply(500, {});
+
+      eventCallback({payload: evt, event: 'pull_request'});
    });
 
    afterEach(function () {
       queue.pile = [];
-      config.events = _events;
+      config.events = JSON.parse(JSON.stringify(_events));
       sandbox.restore();
    });
 

@@ -468,6 +468,14 @@ async function eventCallback (event) {
   }
   const todo = config.events[eventType] || {}  // List of events to process
 
+  // Check if pull request is a draft and skip if ignore_drafts (default false)
+  if (eventType === 'pull_request' &&
+      todo.ignore_drafts === true &&
+      event.payload.pull_request.draft === true) {
+     debug('Ignoring draft pull_requests');
+     return;
+  }
+
   // Check if ref in ignore list or not in include list
   let incl = !todo.ref_ignore;  // ignore list takes precedence
   let ref_list = lib.ensureArray(todo.ref_ignore || todo.ref_include || []);
@@ -548,7 +556,7 @@ async function eventCallback (event) {
         .then(() => console.log(`Updated status to "pending" for ${data.context}`))
         .catch(err => {
            console.log(`Failed to update status to "pending" for ${data.context}`);
-           console.log(err);
+           console.error(err);
         });
      queue.add(data);
   }
