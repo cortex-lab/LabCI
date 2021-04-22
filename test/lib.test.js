@@ -67,9 +67,24 @@ describe('Test partial:', function() {
  * A test for the function getRepoPath
  */
 describe('Test getRepoPath:', function() {
+    afterEach(() => {
+       if (config.repos !== undefined) {
+          delete config.repos;
+       }
+    });
+
     it('expect returned from env', function () {
         let repoPath = lib.getRepoPath();
         expect(repoPath).eq(process.env.REPO_PATH);
+    });
+
+    it('expect returned from config', function () {
+        config.repos = {
+           main: 'path/to/main',
+           submodule: 'path/to/submodule'
+        };
+        let repoPath = lib.getRepoPath('main');
+        expect(repoPath).eq(config.repos.main);
     });
 });
 
@@ -111,10 +126,10 @@ describe('Test context2routine:', function() {
 
 /**
  * A test for the function compareCoverage.
- * @todo add test for strict compare
  */
 describe('Test compareCoverage:', function() {
    var job;
+   const _default_coverage = config.strict_coverage;
 
    beforeEach(function () {
       queue.process(async (_job, _done) => {
@@ -125,7 +140,12 @@ describe('Test compareCoverage:', function() {
             sha: null
          }
       };
-   })
+   });
+
+   afterEach(function () {
+      // Restore default config param
+      config.strict_coverage = _default_coverage;
+   });
 
    it('expect coverage diff', function () {
       // Test decrease in coverage
@@ -141,6 +161,26 @@ describe('Test compareCoverage:', function() {
       lib.compareCoverage(job);
       expect(job.data.status).eq('success');
       expect(job.data.description).contains('increased');
+      expect(queue.pile).empty;
+   });
+
+   it('test strict coverage', function () {
+      job.data.sha = ids[0];
+      job.data.base = ids[1];
+      job.data.coverage = 75.77018633540374;
+
+      // Test strict coverage off
+      config.strict_coverage = false;
+      lib.compareCoverage(job);
+      expect(job.data.status).eq('success');
+      expect(job.data.description).contains('remains at');
+      expect(queue.pile).empty;
+
+      // Test strict coverage on
+      config.strict_coverage = true;
+      lib.compareCoverage(job);
+      expect(job.data.status).eq('failure');
+      expect(job.data.description).contains('remains at');
       expect(queue.pile).empty;
    });
 
@@ -257,6 +297,23 @@ describe('running tests', () => {
    var execEvent;
    var job;
 
+   function childProcessStub(errmsg) {
+      if (errmsg) {
+         return () => {  // Return function to raise exception
+            setImmediate(() => { execEvent.stderr.emit('data', errmsg) });
+            setImmediate(() => { execEvent.emit('exit', 1, null); });
+            setImmediate(() => { execEvent.emit('close', 1, null); });
+            return execEvent;
+         }
+      } else {
+         return () => {  // Return function to successfully execute
+            setImmediate(() => { execEvent.emit('exit', 0, null); });
+            setImmediate(() => { execEvent.emit('close', 0, null); });
+            return execEvent;
+         }
+      }
+   }
+
    before(() => {
       sandbox = sinon.createSandbox();
    });
@@ -279,11 +336,7 @@ describe('running tests', () => {
       job.done = validate;
       let log = path.join(config.dataPath, 'reports', ids[0], 'std_output-cabe27e.log');
       let tasks = config['routines']['*'].map(x => path.resolve(path.join(__dirname, '..', x)));
-      spawnStub.callsFake(() => {
-         setImmediate(() => { execEvent.emit('exit', 0, null); });
-         setImmediate(() => { execEvent.emit('close', 0, null); });
-         return execEvent;
-      });
+      spawnStub.callsFake(childProcessStub());
       lib.buildRoutine(job);
       function validate(err) {
          for (let fn of tasks) {
@@ -316,18 +369,51 @@ describe('running tests', () => {
       }
    });
 
+   it('test misc spawn error', fin => {
+      job.done = validate;
+
+      // Raise a file not found error
+      spawnStub.callsFake(() => {
+         const err = new Error('Unknown error');
+         err.code = -1;
+         err.path = config['routines']['*'][0];
+         setImmediate(() => { execEvent.emit('error', err, null); });
+         return execEvent;
+      });
+      sandbox.stub(fs.promises, 'writeFile');
+      sandbox.stub(fs.promises, 'readFile').resolves('[]');
+      lib.buildRoutine(job).finally(fin);
+      function validate(err) {
+         expect(spawnStub.calledOnce).true;
+         expect(err.message).matches(/Failed to spawn/);
+      }
+   });
+
+    /**
+    * This tests handling error caused by routine failing to save a test record into the JSON db
+    */
+   it('test update from record error', fin => {
+      job.done = validate;
+      job.data.sha = ids[2];  // No record for this SHA
+
+      // Raise a file not found error
+      spawnStub.callsFake(childProcessStub());
+      sandbox.stub(fs.promises, 'writeFile');
+      sandbox.stub(fs.promises, 'readFile').resolves('[]');
+      lib.buildRoutine(job).finally(fin);
+      function validate(err) {
+         expect(spawnStub.calledTwice).true;
+         expect(err.message).contains('test result');
+      }
+   });
+
    it('runtests parses MATLAB error', (fin) => {
       var err;
       const errmsg = 'Error in MATLAB_function line 23';
       job.done = (e) => { err = e; };
 
       // Exit with a MATLAB error
-      spawnStub.callsFake(() => {
-         setImmediate(() => { execEvent.stderr.emit('data', errmsg) });
-         setImmediate(() => { execEvent.emit('exit', 1, null); });
-         setImmediate(() => { execEvent.emit('close', 1, null); });
-         return execEvent;
-      });
+      spawnStub.callsFake(childProcessStub(errmsg));
       sandbox.stub(fs.promises, 'readFile').resolves('[]');
       sandbox.stub(fs.promises, 'writeFile').callsFake((db_path, rec) => {
          expect(db_path).eq(config.dbFile);
@@ -339,17 +425,12 @@ describe('running tests', () => {
       lib.buildRoutine(job);
    });
 
-   it('runtests parses Python error', (fin) => {
+   it('runtests parses Python error', fin => {
       var err;
       job.done = (e) => { err = e; };
 
       // Exit with a Python error
-      spawnStub.callsFake(() => {
-         setImmediate(() => { execEvent.stderr.emit('data', stdErr) });
-         setImmediate(() => { execEvent.emit('exit', 1, null); });
-         setImmediate(() => { execEvent.emit('close', 1, null); });
-         return execEvent;
-      });
+      spawnStub.callsFake(childProcessStub(stdErr));
       sandbox.stub(fs.promises, 'readFile').resolves('[]');
       sandbox.stub(fs.promises, 'writeFile').callsFake((db_path, rec) => {
          expect(db_path).eq(config.dbFile);
@@ -357,6 +438,27 @@ describe('running tests', () => {
          expect(rec).contains(errmsg);
          expect(spawnStub.calledOnce).true;
          expect(err.message).to.have.string(errmsg);
+         fin();
+      })
+      lib.buildRoutine(job);
+   });
+
+   it('runtests parses flake error', fin => {
+      var err;
+      job.done = (e) => { err = e; };
+      const flake_stderr = ('foobar...\n' +
+         './oneibl/params.py:4:1: F401 \'pathlib.PurePath\' imported but unused\n' +
+         './ibllib/tests/qc/test_dlc_qc.py:11:1: F401 \'brainbox.core.Bunch\' imported but unused'
+      );
+
+      // Exit with flake8 errors
+      spawnStub.callsFake(childProcessStub(flake_stderr));
+      sandbox.stub(fs.promises, 'readFile').resolves('[]');
+      sandbox.stub(fs.promises, 'writeFile').callsFake((db_path, rec) => {
+         expect(db_path).eq(config.dbFile);
+         expect(rec).contains('2 flake8 errors');
+         expect(spawnStub.calledOnce).true;
+         expect(err.message).matches(/F401 '.*' imported but unused/);
          fin();
       })
       lib.buildRoutine(job);
@@ -370,11 +472,7 @@ describe('running tests', () => {
       sandbox.stub(fs, 'createWriteStream').returns(logSpy);
       sandbox.stub(fs, 'mkdir');
       logSpy.close.callsFake(fin);
-      spawnStub.callsFake(() => {
-         setImmediate(() => { execEvent.emit('exit', 0, null); });
-         setImmediate(() => { execEvent.emit('close', 0, null); });
-         return execEvent;
-      });
+      spawnStub.callsFake(childProcessStub());
       lib.buildRoutine(job);
    });
 
@@ -453,12 +551,26 @@ describe('Test loading test records:', function() {
  */
 describe('Test saving test records:', function() {
     var backup;
+    const dbFile = config.dbFile;  // Store default path so we can change it
 
     // Check NODE_ENV is correctly set, meaning our imported settings will be test ones
     before(function () {
         assert(process.env.NODE_ENV.startsWith('test'), 'Test run outside test env')
         backup = config.dbFile + Date.now();
         fs.copyFileSync(config.dbFile, backup);
+    });
+
+    // Restore correct dbFile path
+    afterEach(done => {
+       if (config.dbFile !== dbFile) {
+          fs.unlink(config.dbFile, err => {
+             if (err) { console.error(err); }
+             config.dbFile = dbFile;
+             done();
+          });
+       } else {
+          done()
+       }
     });
 
     it('Check saving existing record', async function () {
@@ -497,6 +609,34 @@ describe('Test saving test records:', function() {
            expect(err).instanceOf(lib.APIError);
            done();
         });
+    });
+
+    it('Check missing file error', function (done) {
+        config.dbFile = path.join(path.parse(config.dbFile)['dir'], '.missing_db.json');  // Non-existent db file
+        assert(!fs.existsSync(config.dbFile));
+        const record = {
+           commit: ids[0],
+           status: 'success'
+        };
+        lib.saveTestRecords(record).then(() => {
+           expect(fs.existsSync(config.dbFile)).true;
+           done();
+        });
+    });
+
+    it('Expect catches parse file error', async () => {
+        const incomplete = '{"commit": "7bdf62", "status": "error", "description": "."}]';
+        await fs.promises.writeFile(config.dbFile, incomplete);
+        const record = {
+           commit: ids[0],
+           status: 'success'
+        };
+        try {
+           await lib.saveTestRecords(record);
+           assert(false, 'failed to throw error');
+        } catch (err) {
+           expect(err).instanceOf(SyntaxError);
+        }
     });
 
     after(function () {

@@ -140,6 +140,7 @@ async function saveTestRecords(r) {
    } catch (err) {
       if (err && err.code === 'ENOENT') {
          console.log(`Records file not found at ${config.dbFile}`);
+         console.log('Creating records file...');
          obj = [];
       } else {
          throw err;
@@ -246,7 +247,7 @@ async function shortCircuit(job, func=null) {
  */
 const openTunnel = async () => {
   let args = {
-   port: config.listen_port,
+    port: config.listen_port,
  	 subdomain: process.env.TUNNEL_SUBDOMAIN,
 	 host: process.env.TUNNEL_HOST
   };
