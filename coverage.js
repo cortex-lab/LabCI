@@ -34,12 +34,12 @@ var token = process.env.COVERALLS_TOKEN;
  * @returns {Object} key `Hash` contains MD5 digest string of file; `count` contains number of lines in source file
  */
 function md5(path) {
-  const hash = crypto.createHash('md5'); // Creating hash object
-  const buf = fs.readFileSync(path, 'utf-8'); // Read in file
-  const count = buf.split(/\r\n|\r|\n/).length; // Count the number of lines
-  hash.update(buf, 'utf-8'); // Update hash
+    const hash = crypto.createHash('md5'); // Creating hash object
+    const buf = fs.readFileSync(path, 'utf-8'); // Read in file
+    const count = buf.split(/\r\n|\r|\n/).length; // Count the number of lines
+    hash.update(buf, 'utf-8'); // Update hash
 
-  return {hash: hash.digest('hex'), count: count};
+    return {hash: hash.digest('hex'), count: count};
 }
 
 
@@ -53,35 +53,37 @@ function md5(path) {
  * @todo Generalize path default
  */
 async function formatCoverage(classList, srcPath, sha) {
-  var job = {};
-  var sourceFiles = [];
-  var digest;
-  srcPath = typeof srcPath != "undefined" ? srcPath : process.env.REPO_PATH; // default to home dir
-  // For each class, create file object containing array of lines covered and add to sourceFile array
-  await Promise.all(classList.map(async c => {
-    let file = {}; // Initialize file object
-    let fullPath = c.$.filename.startsWith(srcPath)? c.$.filename : path.join(srcPath, c.$.filename);
-    digest = md5(fullPath); // Create digest and line count for file
-    let lines = new Array(digest.count).fill(null); // Initialize line array the size of source code file
-    c.lines[0].line.forEach(ln => {
-      let n = Number(ln.$.number);
-      if (n <= digest.count) {lines[n] = Number(ln.$.hits) }
-    });
-    // create source file object
-    file.name = c.$.filename;
-    file.source_digest = digest.hash;
-    file.coverage = lines; // file.coverage[0] == line 1
-    sourceFiles.push(file);
-  }));
+    var job = {};
+    var sourceFiles = [];
+    var digest;
+    srcPath = typeof srcPath != 'undefined' ? srcPath : process.env.REPO_PATH; // default to home dir
+    // For each class, create file object containing array of lines covered and add to sourceFile array
+    await Promise.all(classList.map(async c => {
+        let file = {}; // Initialize file object
+        let fullPath = c.$.filename.startsWith(srcPath) ? c.$.filename : path.join(srcPath, c.$.filename);
+        digest = md5(fullPath); // Create digest and line count for file
+        let lines = new Array(digest.count).fill(null); // Initialize line array the size of source code file
+        c.lines[0].line.forEach(ln => {
+            let n = Number(ln.$.number);
+            if (n <= digest.count) {
+                lines[n] = Number(ln.$.hits);
+            }
+        });
+        // create source file object
+        file.name = c.$.filename;
+        file.source_digest = digest.hash;
+        file.coverage = lines; // file.coverage[0] == line 1
+        sourceFiles.push(file);
+    }));
 
-  job.repo_token = token; // env secret token
-  job.service_name = `coverage/${process.env.USERDOMAIN}`;
-  // The associated pull request ID of the build. Used for updating the status and/or commenting.
-  job.service_pull_request = '';
-  job.source_files = sourceFiles;
-  job.commit_sha = sha;
-  job.run_at = timestamp; // "2013-02-18 00:52:48 -0800"
-  return job;
+    job.repo_token = token; // env secret token
+    job.service_name = `coverage/${process.env.USERDOMAIN}`;
+    // The associated pull request ID of the build. Used for updating the status and/or commenting.
+    job.service_pull_request = '';
+    job.source_files = sourceFiles;
+    job.commit_sha = sha;
+    job.run_at = timestamp; // "2013-02-18 00:52:48 -0800"
+    return job;
 }
 
 /**
@@ -94,37 +96,39 @@ async function formatCoverage(classList, srcPath, sha) {
  * @see {@link https://github.com/cobertura/cobertura/wiki|Cobertura Wiki}
  */
 function coverage(path, repo, sha, submodules) {
-  return fs.promises.readFile(path)  // Read in XML file
-     .then(parser.parseStringPromise) // Parse XML
-     .then(result => {
-        // Extract root code path
-        const rootPath = (result.coverage.sources[0].source[0] || process.env.REPO_PATH).replace(/[\/|\\]+$/, '')
-        timestamp = new Date(result.coverage.$.timestamp*1000); // Convert UNIX timestamp to Date object
-        let classes = []; // Initialize classes array
+    return fs.promises.readFile(path)  // Read in XML file
+        .then(parser.parseStringPromise) // Parse XML
+        .then(result => {
+            // Extract root code path
+            const rootPath = (result.coverage.sources[0].source[0] || process.env.REPO_PATH)
+                .replace(/[\/|\\]+$/, '');
+            timestamp = new Date(result.coverage.$.timestamp * 1000); // Convert UNIX timestamp to Date object
+            let classes = []; // Initialize classes array
 
-        const packages = result.coverage.packages[0].package;
-        packages.forEach(pkg => { classes.push(pkg.classes[0].class) }); // Get all classes
-        classes = classes.reduce((acc, val) => acc.concat(val), []); // Flatten
+            const packages = result.coverage.packages[0].package;
+            packages.forEach(pkg => { classes.push(pkg.classes[0].class); }); // Get all classes
+            classes = classes.reduce((acc, val) => acc.concat(val), []); // Flatten
 
-        // The submodules
-        const byModule = {'main' : []};
-        submodules.forEach((x) => { byModule[x] = []; });  // initialize submodules
+            // The submodules
+            const byModule = {'main': []};
+            submodules.forEach((x) => { byModule[x] = []; });  // initialize submodules
 
-        // Sort into piles
-        byModule['main'] = classes.filter(function (e) {
-            if (e.$.filename.search(/(tests\\|_.*test|docs\\)/i) !== -1) {return false;} // Filter out tests and docs
-            if (!Array.isArray(e.lines[0].line)) {return false;} // Filter out files with no functional lines
-            for (let submodule of submodules) {
-               if (e.$.filename.startsWith(submodule)) {
-                  byModule[submodule].push(e); return false;
-               }
-            }
-            return true;
+            // Sort into piles
+            byModule['main'] = classes.filter(function (e) {
+                if (e.$.filename.search(/(tests\\|_.*test|docs\\)/i) !== -1) return false; // Filter out tests and docs
+                if (!Array.isArray(e.lines[0].line)) return false; // Filter out files with no functional lines
+                for (let submodule of submodules) {
+                    if (e.$.filename.startsWith(submodule)) {
+                        byModule[submodule].push(e);
+                        return false;
+                    }
+                }
+                return true;
+            });
+            // Select module
+            let modules = byModule[repo] || byModule['main'];
+            return formatCoverage(modules, rootPath, sha);
         });
-        // Select module
-        let modules = byModule[repo] || byModule['main'];
-        return formatCoverage(modules, rootPath, sha);
-     });
 }
 
 

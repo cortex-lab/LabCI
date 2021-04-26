@@ -5,9 +5,9 @@
  * @todo add abort option for when new commits added
  * @todo rename context to description and use context to track posts
  */
-const { openTunnel, queue, shortCircuit, buildRoutine} = require('./lib');
-const { srv, handler, eventCallback} = require('./serve');
-const config = require("./config/config").settings;
+const {openTunnel, queue, shortCircuit, buildRoutine} = require('./lib');
+const {srv, handler, eventCallback} = require('./serve');
+const config = require('./config/config').settings;
 
 
 /**
@@ -32,25 +32,23 @@ queue.on('error', _ => {});
 
 // Log any unhandled errors
 process.on('unhandledRejection', (reason, p) => {
-  console.log('Unhandled Rejection at: Promise', p, 'reason:', reason);
-  console.log(reason.stack)
+    console.log('Unhandled Rejection at: Promise', p, 'reason:', reason);
+    console.log(reason.stack);
 });
 
 
 ///////////////////// START TUNNEL /////////////////////
 
 openTunnel().then(
-   () => {
-      // Start the server on same port as tunnel
-      var server = srv.listen(config.listen_port, function () {
-      let host = server.address().address;
-      let port = server.address().port;
+    () => {
+        // Start the server on same port as tunnel
+        var server = srv.listen(config.listen_port, function () {
+            let host = server.address().address;
+            let port = server.address().port;
 
-      console.log("Handler listening at http://%s:%s", host, port);
-      });
-   },
-   (e) => {
-      throw e;
-   }
-)
+            console.log('Handler listening at http://%s:%s', host, port);
+        });
+    },
+    (e) => { throw e; }
+);
 
