@@ -167,6 +167,13 @@ describe('Test compareCoverage:', function () {
         expect(job.data.status).eq('success');
         expect(job.data.description).contains('increased');
         expect(queue.pile).empty;
+
+        // Test slight increase
+        job.data.coverage = 75.7746;
+        lib.compareCoverage(job);
+        expect(job.data.status).eq('success');
+        expect(job.data.description).contains('increased slightly');
+        expect(queue.pile).empty;
     });
 
     it('test strict coverage', function () {

@@ -578,9 +578,10 @@ function compareCoverage(job) {
         if (delta === 0) {
             job.data.description = `Coverage remains at ${Math.round(records[1].coverage * 100) / 100}%`;
         } else {
-            job.data.description = `Coverage ${passed ? 'increased' : 'decreased'} ` +
-                `from ${Math.round(records[1].coverage * 100) / 100}% ` +
-                `to ${Math.round(records[0].coverage * 100) / 100}%`;
+            job.data.description = `Coverage ${passed ? 'increased' : 'decreased'} `;
+            let previous = Math.round(records[1].coverage * 100) / 100;
+            let current = Math.round(records[0].coverage * 100) / 100;
+            job.data.description += (current === previous? 'slightly' : `from ${previous}% to ${current}%`);
         }
 
     } else { // We need to add a new job for incomplete coverage
