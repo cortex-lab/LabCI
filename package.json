@@ -1,5 +1,5 @@
 {
-  "name": "LabCI",
+  "name": "labci",
   "version": "3.0.0",
   "description": "A small set of modules written in Node.js for running automated tests of MATLAB and Python code in response to GitHub events.  Also submits code coverage to the Coveralls API.",
   "main": "main.js",
