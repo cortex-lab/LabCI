@@ -1,8 +1,8 @@
-# MATLAB-ci
+# LabCI
 [![Build Status](https://travis-ci.com/cortex-lab/matlab-ci.svg?branch=master)](https://travis-ci.com/cortex-lab/matlab-ci)
-[![Coverage](https://img.shields.io/badge/coverage-81.58-green)](https://img.shields.io/badge/coverage-72.35-yellowgreen)
+[![Coverage](https://img.shields.io/badge/coverage-92.13-brightgreen)](https://img.shields.io/badge/coverage-72.35-yellowgreen)
 
-A small set of modules written in Node.js for running automated tests of MATLAB code in response to GitHub events.  Also submits code coverage to the Coveralls API.
+A small set of modules written in Node.js for running automated tests of MATLAB and Python code in response to GitHub events.  Also submits code coverage to the Coveralls API.
 
 Currently unsupported:
 * Running tests on forked repositories
@@ -26,11 +26,8 @@ Create a shell/batch script for preparing your environment, and one for running 
 Add these to the settings.json file in config:
 ```
 {
-  "setup_function": "./prep_env.BAT",
-  "test_function": "./run_tests.BAT",
   "listen_port": 3000,
   "timeout": 480000,
-  "program": "python",
   "strict_coverage": false,
   "events": {
     "push": {
@@ -43,6 +40,9 @@ Add these to the settings.json file in config:
       "ref_ignore": ["documentation", "gh-pages"],
       "files_ignore": [".*\\.yml", ".*\\.md", "LICEN[SC]E"]
     }
+  }
+  "routines": {
+    "*": ["prep_env.BAT", "run_tests.BAT"]
   }
 }
 ``` 
