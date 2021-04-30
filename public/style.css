@@ -1,0 +1,109 @@
+#console {
+    position: relative;
+    margin: auto;
+    width: 80%;
+    display: flex;
+    border: 5px solid beige;
+    background-color: black;
+    height: 80vh;
+    overflow: auto;
+    padding: 1rem;
+    color: white;
+    font: .8rem Inconsolata, monospace;
+    text-shadow: currentcolor 0 0 5px;
+    scrollbar-width: thin;
+}
+
+p#date {
+    position : absolute;
+    top : -5px;
+    right : 10px;
+    color: grey;
+    text-shadow: none;
+}
+
+h1 {
+    text-align:center;
+}
+
+footer {
+    text-align: center;
+    padding: 1px;
+    background-color: bisque;
+}
+
+a {
+    color: black;
+}
+
+body::after {
+    content: "";
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: repeating-linear-gradient(
+        0deg,
+        rgba(0, 0, 0, 0.15),
+        rgba(0, 0, 0, 0.15) 1px,
+        transparent 1px,
+        transparent 2px
+    );
+    pointer-events: none;
+}
+
+::selection {
+    background: #ffffff;
+    color: #000000;
+    text-shadow: none;
+}
+
+.blinking-cursor {
+    color: #2E3D48;
+    text-shadow: 0 0 1px #C8C8C8;
+    -webkit-animation: 1s blink step-end infinite;
+    -moz-animation: 1s blink step-end infinite;
+    -o-animation: 1s blink step-end infinite;
+    animation: 1s blink step-end infinite;
+}
+
+@keyframes blink {
+    from, to {
+        color: transparent;
+    }
+    50% {
+        color: black;
+        text-shadow: none;
+    }
+}
+
+@-moz-keyframes blink {
+    from, to {
+        color: transparent;
+    }
+    50% {
+        color: black;
+        text-shadow: none;
+    }
+}
+
+@-webkit-keyframes blink {
+    from, to {
+        color: transparent;
+    }
+    50% {
+        color: black;
+        text-shadow: none;
+    }
+}
+
+@-o-keyframes blink {
+    from, to {
+        color: transparent;
+    }
+    50% {
+        color: black;
+        text-shadow: none;
+    }
+}

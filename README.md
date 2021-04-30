@@ -40,7 +40,8 @@ Add these to the settings.json file in config:
     "pull_request": {
       "checks": ["continuous-integration", "coverage"],
       "actions": ["opened", "synchronize", "reopened"],
-      "ref_ignore": ["documentation", "gh-pages"]
+      "ref_ignore": ["documentation", "gh-pages"],
+      "files_ignore": [".*\\.yml", ".*\\.md", "LICEN[SC]E"]
     }
   }
 }
@@ -49,6 +50,10 @@ Some extra optional settings:
 
 - `shell` - optional shell to use when calling scripts (see `child_process.execFile` options).
 - `events:event:ref_include` - same as `ref_ignore`, but a pass list instead of block list.
+- `events:event:files_ignore` - list of files whose changes can be ignored.  If only ignored files
+are changed checks are skipped.
+- `events:pull_request:ignore_drafts` - if true draft pull request actions are skipped (NB: Be
+sure to add 'ready_for_review' to the actions list when ignoring drafts).
 - `kill_children` - if present and true, `tree-kill` is used to kill the child processes, required 
 if shell/batch script forks test process (e.g. a batch script calls python).
 - `repos` - an array of submodules or map of modules to their corresponding paths.

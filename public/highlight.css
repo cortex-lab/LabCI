@@ -1,0 +1,24 @@
+.logDebug {
+	color: green;
+}
+
+.logInfo {
+	color: cyan;
+}
+
+.logWarn, .warning {
+    color: orange;
+}
+
+.logError {
+    color: red;
+}
+
+.logCritical {
+    color: purple;
+}
+
+.error, .flake8 {
+    color: red;
+    font-weight: bold;
+}
