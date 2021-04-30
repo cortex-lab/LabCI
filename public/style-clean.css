@@ -1,0 +1,83 @@
+#console {
+    position: relative;
+    margin: auto;
+    width: 80%;
+    display: flex;
+    background-color: burlywood;  /* #af926b */
+    height: 80vh;
+    overflow: auto;
+    padding: 1rem;
+    color: black;
+    font: .8rem Inconsolata, monospace;
+    scrollbar-width: thin;
+}
+
+p#date {
+    position : absolute;
+    top : -5px;
+    right : 10px;
+    color: grey;
+}
+
+h1 {
+    text-align:center;
+}
+
+footer {
+    text-align: center;
+    padding: 1px;
+    background-color: bisque;
+}
+
+a {
+    color: black;
+}
+
+::selection {
+    background: #ffffff;
+    color: #000000;
+}
+
+.blinking-cursor {
+    color: #2E3D48;
+    -webkit-animation: 1s blink step-end infinite;
+    -moz-animation: 1s blink step-end infinite;
+    -o-animation: 1s blink step-end infinite;
+    animation: 1s blink step-end infinite;
+}
+
+@keyframes blink {
+    from, to {
+        color: transparent;
+    }
+    50% {
+        color: black;
+    }
+}
+
+@-moz-keyframes blink {
+    from, to {
+        color: transparent;
+    }
+    50% {
+        color: black;
+    }
+}
+
+@-webkit-keyframes blink {
+    from, to {
+        color: transparent;
+    }
+    50% {
+        color: black;
+    }
+}
+
+@-o-keyframes blink {
+    from, to {
+        color: transparent;
+    }
+    50% {
+        color: black;
+    }
+}

@@ -4,19 +4,17 @@
  * @todo save auxiliary configuration into a separate config file
  * @todo add abort option for when new commits added
  * @todo rename context to description and use context to track posts
- * @todo fix intentions
  */
-const { openTunnel, queue, shortCircuit} = require('./lib');
-const { srv, handler, eventCallback, runTests, prepareEnv} = require('./serve');
-const config = require("./config/config").settings;
+const {openTunnel, queue, shortCircuit, buildRoutine} = require('./lib');
+const {srv, handler, eventCallback} = require('./serve');
+const config = require('./config/config').settings;
 
 
 /**
  * Build queue processing pipeline.  The shortCircuit call checks whether the results may be loaded from file,
  * bypassing the test function.
  */
-const run = (job) => { prepareEnv(job, runTests); };
-queue.process((job) => { shortCircuit(job, run); });
+queue.process((job) => { shortCircuit(job, buildRoutine); });
 
 // NB: Only the supported events make it this far (i.e. push and pull requests)
 handler.on('*', evt => eventCallback(evt));
@@ -32,32 +30,25 @@ handler.on('*', evt => eventCallback(evt));
 queue.on('error', _ => {});
 
 
-// Log handler errors
-handler.on('error', function (err) {
-  console.error('Error:', err.message);
-})
-
 // Log any unhandled errors
 process.on('unhandledRejection', (reason, p) => {
-  console.log('Unhandled Rejection at: Promise', p, 'reason:', reason);
-  console.log(reason.stack)
+    console.log('Unhandled Rejection at: Promise', p, 'reason:', reason);
+    console.log(reason.stack);
 });
 
 
 ///////////////////// START TUNNEL /////////////////////
 
 openTunnel().then(
-   () => {
-      // Start the server on same port as tunnel
-      var server = srv.listen(config.listen_port, function () {
-      let host = server.address().address;
-      let port = server.address().port;
+    () => {
+        // Start the server on same port as tunnel
+        var server = srv.listen(config.listen_port, function () {
+            let host = server.address().address;
+            let port = server.address().port;
 
-      console.log("Handler listening at http://%s:%s", host, port);
-      });
-   },
-   (e) => {
-      throw e;
-   }
-)
+            console.log('Handler listening at http://%s:%s', host, port);
+        });
+    },
+    (e) => { throw e; }
+);
 
