@@ -278,13 +278,10 @@ describe('Test duration in description', function () {
         });
     });
 
-    after(function (done) {
+    after(function () {
         queue.pile = [];  // In case a job was added
-        fs.unlink(config.dbFile, err => {
-            config.dbFile = _dbFile;
-            if (err) throw err;
-            done();
-        });
+        fs.unlinkSync(config.dbFile);
+        config.dbFile = _dbFile;
     });
 
     it('expect duration in description', async function () {
