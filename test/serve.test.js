@@ -624,7 +624,7 @@ describe('shields callback', () => {
         request(srv)
             .get(`/coverage/${info.repo}/${SHA}?force=1`)
             .expect('Content-Type', 'application/json')
-            .expect(201)
+            .expect(200)
             .end(function (err, res) {
                 scope.done();
                 if (err) return done(err);

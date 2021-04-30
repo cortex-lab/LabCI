@@ -9,11 +9,9 @@ let settings;
 
 // Defaults for when there's no user file; will almost certainly fail
 const defaults = {
-    setup_function: null,
-    test_function: null,
+    max_description_len: 140,  // GitHub status API has a description char limit
     listen_port: 3000,
     timeout: 8 * 60000,
-    program: 'python',
     strict_coverage: false,
     events: {
         push: {
@@ -57,10 +55,13 @@ if (env.startsWith('test')) {
     settings = testing;
 } else if (userSettings) {
     settings = userSettings;
-    if (!('dbFile' in settings)) settings.dbFile = path.join(dataPath, dbFilename);
-    if (!('dataPath' in settings)) settings.dataPath = dataPath;
 } else {
     settings = defaults;
+}
+
+// Ensure defaults for absent fields
+for (let field in defaults) {
+    if (!(field in settings)) settings[field] = defaults[field];
 }
 
 // Check ENV set up correctly
@@ -75,4 +76,4 @@ if (missing.length > 0) {
     throw ReferenceError(errMsg);
 }
 
-module.exports = {settings};
+module.exports = { settings };

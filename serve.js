@@ -24,7 +24,6 @@ const secret = process.env['GITHUB_WEBHOOK_SECRET'];
 // Currently this app is only set up to process push and pull request events so we will have the
 // handler reject any others.  We will also check that only these are set up in the config.
 const supportedEvents = ['push', 'pull_request'];  // events the ci can handle
-const maxN = 140;  // The maximum n chars of the status description
 const ENDPOINT = 'logs';  // The URL endpoint for fetching status check details
 // An optional static directory for serving css files
 const STATIC = 'public';
@@ -326,6 +325,7 @@ srv.get('/:badge/:repo/:id', async (req, res) => {
         repo: req.params.repo,
         routine: lib.context2routine(context)
     };
+
     // Check we have a matching routine
     if (!data.routine) {
         console.error(`No routine for "${context}" context`);
@@ -341,7 +341,7 @@ srv.get('/:badge/:repo/:id', async (req, res) => {
             console.log(`Request for ${req.params.id} ${data.context}`);
             const report = lib.getBadgeData(data);
             // Send report
-            res.statusCode = (report['message'] === 'pending') ? 201 : 200;
+            res.statusCode = 200;
             res.setHeader('Content-Type', 'application/json');
             res.end(JSON.stringify(report));
         })
@@ -384,7 +384,7 @@ async function updateStatus(data, targetURL = '') {
         sha: data['sha'],
         state: data['status'],
         target_url: targetURL,
-        description: (data['description'] || '').substring(0, maxN),
+        description: (data['description'] || '').substring(0, config.max_description_len),
         context: data['context']
     });
 }
@@ -404,7 +404,7 @@ async function eventCallback(event) {
     debug('eventCallback called');
     var ref;  // ref (i.e. branch name) and head commit
     const eventType = event.event;  // 'push' or 'pull_request'
-    var job_template = {  // the data structure containing information about our check
+    const job_template = {  // the data structure containing information about our check
         sha: null,  // The head commit sha to test on
         base: null,  // The previous commit sha (for comparing changes in code coverage)
         force: false,  // Whether to run tests when results already cached

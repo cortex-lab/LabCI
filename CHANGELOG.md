@@ -14,9 +14,11 @@
  
  ## Modified
  
+ - renamed MATLAB-CI to labCI
  - records endpoint can return pending jobs
  - tests badge endpoint returns 'error' on errored tests instead of 'unknown'
  - job waits for coverage calculation and updating of records before finishing
+ - On successful completion of tests the duration is appended to the description
  
 ## [2.2.1]
 

@@ -165,13 +165,24 @@ async function updateJobFromRecord(job) {
     let log = _log.extend('updateJobFromRecord');
     log('Loading test records for head commit %g', job.data['sha']);
     let rec = loadTestRecords(job.data['sha']);  // Load test result from json log
-    if (rec.length === 0) {
+    if (rec.length === 0) {  // No record found
         log('No record found, return false');
         return false;
-    }      // No record found
+    }
     rec = Array.isArray(rec) ? rec.pop() : rec;  // in case of duplicates, take last
     job.data['status'] = rec['status'];
     job.data['description'] = rec['description'];
+    // Append the duration in minutes if available
+    if (rec['status'] === 'success' && job.created) {
+        let diff = (new Date().getTime() - job.created.getTime()) / 1000;
+        let duration = ` (took ${Math.round(diff / 60)} min)`;
+        // Truncate description if necessary
+        let strSize = (config.max_description_len - duration.length);
+        if (job.data['description'].length > strSize) {
+            job.data['description'] = job.data['description'].slice(0, strSize - 3) + '...';
+        }
+        job.data['description'] += duration;
+    }
     job.data['coverage'] = ('coverage' in rec) ? rec['coverage'] : null;
     if (!job.data['coverage'] && rec['status'] !== 'error') {
         log('Coverage missing, computing from XML');
@@ -523,9 +534,7 @@ function computeCoverage(job) {
             console.log('Coverage saved into records');
             // If this test was to ascertain coverage, call comparison function
             let toCompare = (job.data.context || '').startsWith('coverage') && job.data.base;
-            if (toCompare) {
-                return compareCoverage(job);
-            }
+            if (toCompare) return compareCoverage(job);
         });
     }).catch(err => {
         job.status = 'error';
@@ -620,12 +629,12 @@ function compareCoverage(job) {
 function getBadgeData(data) {
     let id = data.sha;
     if (!id) throw new ReferenceError('Invalid "sha" field in input data');
-    var report = {'schemaVersion': 1, 'label': data.context};
+    const report = {'schemaVersion': 1, 'label': data.context};
     // Try to load coverage record
     let record = data.force ? [] : loadTestRecords(id);
     // If no record found
     if (record.length === 0) {
-        report['message'] = 'pending';
+        report['message'] = data.context === 'tests'? 'in progress' : 'pending';
         report['color'] = 'orange';
         // Check test isn't already on the pile
         let onPile = false;

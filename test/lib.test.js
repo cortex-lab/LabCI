@@ -229,7 +229,7 @@ describe('Test compareCoverage:', function () {
  * A test for the function updateJobFromRecord.
  * @todo add test for compareCoverage call
  */
-describe('Test updateJobFromRecord:', function () {
+describe('Test updateJobFromRecord', function () {
     var job;
 
     beforeEach(function () {
@@ -253,6 +253,54 @@ describe('Test updateJobFromRecord:', function () {
         const updated = await lib.updateJobFromRecord(job);
         expect(updated).true;
         expect(job.data).deep.keys(['sha', 'status', 'description', 'coverage']);
+    });
+});
+
+
+/**
+ * A test for inserting the duration in description field by updateJobFromRecord.
+ */
+describe('Test duration in description', function () {
+    var job;
+    var _dbFile = config.dbFile;
+
+    before(function (done) {
+        job = {
+            data: {
+                sha: ids[1]
+            },
+            created: new Date(Date.now() - 1000 * 60 * 10)
+        };
+        config.dbFile = path.join(path.parse(config.dbFile).dir, '._db.json');
+        fs.copyFile(_dbFile, config.dbFile, err => {
+            if (err) throw err;
+            done();
+        });
+    });
+
+    after(function (done) {
+        queue.pile = [];  // In case a job was added
+        fs.unlink(config.dbFile, err => {
+            config.dbFile = _dbFile;
+            if (err) throw err;
+            done();
+        });
+    });
+
+    it('expect duration in description', async function () {
+        const updated = await lib.updateJobFromRecord(job);
+        expect(updated).true;
+        expect(job.data.description).contains('10 min');
+    });
+
+    it('expect truncated description', async function () {
+        const records = JSON.parse(await fs.promises.readFile(config.dbFile, 'utf8'));
+        records[1]['description'] = 'Lorem ipsum '.repeat(13);
+        await fs.promises.writeFile(config.dbFile, JSON.stringify(records));
+        const updated = await lib.updateJobFromRecord(job);
+        expect(updated).true;
+        expect(job.data.description.length).lte(config.max_description_len);
+        expect(job.data.description.endsWith('... (took 10 min)')).true;
     });
 });
 
@@ -793,6 +841,39 @@ describe('getBadgeData function', () => {
         data = lib.getBadgeData(input);
         expect(data).to.deep.equal(expected);
         sandbox.assert.calledOnce(queue.add);
+    });
+
+    it('Check tests status', function () {
+        var data, expected;
+
+        // Failed tests
+        input['sha'] = ids[0];
+        input['context'] = 'tests';
+        data = lib.getBadgeData(input);
+        expected = {
+            schemaVersion: 1,
+            label: 'tests',
+            message: '297 passed, 18 failed, 5 skipped',
+            color: 'red'
+        };
+        expect(data).to.deep.equal(expected);
+        sandbox.assert.notCalled(queue.add);
+
+        // Errored
+        input['sha'] = ids[3];
+        expected['message'] = 'errored';
+        expected['color'] = 'red';
+        data = lib.getBadgeData(input);
+        expect(data).to.deep.equal(expected);
+        sandbox.assert.notCalled(queue.add);
+
+        // No stats field
+        input['sha'] = ids[1];
+        expected['message'] = 'passed';
+        expected['color'] = 'brightgreen';
+        data = lib.getBadgeData(input);
+        expect(data).to.deep.equal(expected);
+        sandbox.assert.notCalled(queue.add);
     });
 
     it('Check force flag', function () {
