@@ -366,7 +366,8 @@ describe('running tests', () => {
                     execEvent.stderr.emit('data', errmsg);
                 });
                 setImmediate(() => {
-                    execEvent.emit('exit', 1, null);
+                    execEvent.exitCode = 1;
+                    execEvent.emit('exit', execEvent.exitCode, null);
                 });
                 setImmediate(() => {
                     execEvent.emit('close', 1, null);
@@ -376,7 +377,8 @@ describe('running tests', () => {
         } else {
             return () => {  // Return function to successfully execute
                 setImmediate(() => {
-                    execEvent.emit('exit', 0, null);
+                    execEvent.exitCode = 0;
+                    execEvent.emit('exit', execEvent.exitCode, null);
                 });
                 setImmediate(() => {
                     execEvent.emit('close', 0, null);
@@ -569,16 +571,7 @@ describe('running tests', () => {
         }
 
         sandbox.stub(queue._events, 'finish').value([validate]);
-        spawnStub.callsFake(() => {
-            setImmediate(() => {
-                execEvent.emit('exit', 0, null);
-                execEvent.exitCode = 0;
-            });
-            setImmediate(() => {
-                execEvent.emit('close', 0, null);
-            });
-            return execEvent;
-        });
+        spawnStub.callsFake(childProcessStub());
         queue.add({sha: ids[0]});
     });
 

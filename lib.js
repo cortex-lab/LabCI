@@ -354,7 +354,7 @@ async function buildRoutine(job) {
     const sha = data['sha'];
     const logDir = path.join(config.dataPath, 'reports', sha);
     const logName = path.join(logDir, `std_output-${shortID(sha)}.log`);
-    await fs.promises.mkdir(logDir, {recursive: true});
+    await fs.promises.mkdir(logDir, { recursive: true });
     const logDump = fs.createWriteStream(logName, {flags: 'w'});
     logDump.on('close', () => debug('Closing log file'));
     const ops = config.shell ? {'shell': config.shell} : {};
