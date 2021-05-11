@@ -1,7 +1,15 @@
 # Changelog
 
-## [Latest](https://github.com/cortex-lab/matlab-ci/commits/master) [3.0.0]
+## [Latest](https://github.com/cortex-lab/matlab-ci/commits/master) [3.0.1]
 
+## Modified
+
+ - dependency vulnerability hotfix
+ - npm name changed to 'lab-ci' to conform with package rules
+ - fix build shield in readme
+ 
+ ## [3.0.0]
+ 
 ## Added
 
  - any number of tasks may be added for a job, which are then executed in series 
