@@ -4,8 +4,9 @@
 
 ## Modified
 
- - Dependency vulnerability hotfix
+ - dependency vulnerability hotfix
  - npm name changed to 'lab-ci' to conform with package rules
+ - fix build shield in readme
  
  ## [3.0.0]
  
