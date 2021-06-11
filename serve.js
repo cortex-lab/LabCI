@@ -256,14 +256,15 @@ srv.get(`/log/:id`, function (req, res) {
 srv.get(`/${ENDPOINT}/raw/:id`, function (req, res) {
     let id = lib.shortID(req.params.id);
     let log_only = (req.query.type || '').startsWith('log');
-    // let default_context = '';
-    // for (let x of config.events) {
-    //    if (x.checks) {
-    //       default_context = '_' + (Array.isArray(x.checks)? x.checks.pop(): x.checks);
-    //       break;
-    //    }
-    // }
-    let filename = log_only ? `test_output.log` : `std_output-${id}.log`;
+    let default_context = '';
+    for (let x of Object.values(config.events)) {
+       if (x.checks) {
+          default_context = Array.isArray(x.checks)? x.checks.pop(): x.checks;
+          break;
+       }
+    }
+    let checkName = '_' + (req.query.context || default_context);
+    let filename = log_only ? `test_output.log` : `std_output-${id}${checkName}.log`;
     let jobStatus = 'finished';
     for (let job of queue.pile) {
         if (job.data.sha === req.params.id) {
@@ -535,7 +536,7 @@ async function eventCallback(event) {
         let data = Object.assign({}, job_template);
         data.context = `${check}/${process.env['USERDOMAIN'] || process.env['NAME']}`;
         data.routine = lib.context2routine(check);
-        let targetURL = `${process.env['WEBHOOK_PROXY_URL']}/log/${data.sha}?refresh=1`;
+        let targetURL = `${process.env['WEBHOOK_PROXY_URL']}/log/${data.sha}?refresh=1&context=${check}`;
         switch (check) {
             case 'coverage':
                 data.description = 'Checking coverage';

@@ -657,7 +657,7 @@ describe('logs endpoint', () => {
         const log_path = path.join(config.dataPath, 'reports', SHA);
         logData = ['hello world', 'foobar'];
         scope = nock('https://api.github.com');
-        let file = path.join(log_path, `std_output-${SHA.substr(0, 7)}.log`);
+        let file = path.join(log_path, `std_output-${SHA.substr(0, 7)}_continuous-integration.log`);
         fs.mkdirSync(log_path, {recursive: true});
         fs.writeFileSync(file, logData[0]);
         fs.writeFileSync(path.join(log_path, 'test_output.log'), logData[1]);
