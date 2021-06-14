@@ -256,14 +256,7 @@ srv.get(`/log/:id`, function (req, res) {
 srv.get(`/${ENDPOINT}/raw/:id`, function (req, res) {
     let id = lib.shortID(req.params.id);
     let log_only = (req.query.type || '').startsWith('log');
-    let default_context = '';
-    for (let x of Object.values(config.events)) {
-       if (x.checks) {
-          default_context = Array.isArray(x.checks)? x.checks.pop(): x.checks;
-          break;
-       }
-    }
-    let checkName = '_' + (req.query.context || default_context);
+    let checkName = req.query.context? '_' + req.query.context : '';
     let filename = log_only ? `test_output.log` : `std_output-${id}${checkName}.log`;
     let jobStatus = 'finished';
     for (let job of queue.pile) {
