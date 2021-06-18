@@ -360,7 +360,8 @@ async function buildRoutine(job) {
         debug('Renaming log file');
         let checkName = '_' + (data.context || '').split('/')[0];
         let newName = path.join(logDir, `std_output-${shortID(sha)}${checkName}.log`);
-        fs.rename(logName, newName, () => debug(`Log renamed to ${newName}`));
+        // fs.rename(logName, newName, () => debug(`Log renamed to ${newName}`));
+        fs.copyFile(logName, newName, () => debug(`Log copied to ${newName}`));
     });
     const ops = config.shell ? {'shell': config.shell} : {};
 

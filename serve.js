@@ -281,6 +281,11 @@ srv.get(`/${ENDPOINT}/raw/:id`, function (req, res) {
         }
     };
 
+    // if (!(req.query.context) && !(fs.existsSync(path.path(options.root, filename)))) {
+    //     // Collage logs
+    //     require('child_process').execSync(`cat *.log > ${filename}`, {cwd: options.root});
+    // }
+
     res.sendFile(filename, options, function (err) {
         if (err) {
             console.error('Failed to send log: ', err);
