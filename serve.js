@@ -258,6 +258,7 @@ srv.get(`/${ENDPOINT}/raw/:id`, function (req, res) {
     let log_only = (req.query.type || '').startsWith('log');
     let checkName = req.query.context? '_' + req.query.context : '';
     let filename = log_only ? `test_output.log` : `std_output-${id}${checkName}.log`;
+    log(`log query context = ${req.query.context}; filename = ${filename}`);
     let jobStatus = 'finished';
     for (let job of queue.pile) {
         if (job.data.sha === req.params.id) {
@@ -529,7 +530,7 @@ async function eventCallback(event) {
         let data = Object.assign({}, job_template);
         data.context = `${check}/${process.env['USERDOMAIN'] || process.env['NAME']}`;
         data.routine = lib.context2routine(check);
-        let targetURL = `${process.env['WEBHOOK_PROXY_URL']}/log/${data.sha}?refresh=1&context=${check}`;
+        let targetURL = `${process.env['WEBHOOK_PROXY_URL']}/log/${data.sha}?refresh=1`;
         switch (check) {
             case 'coverage':
                 data.description = 'Checking coverage';
@@ -581,7 +582,8 @@ queue.on('finish', (err, job) => { // On job end post result to API
         // No URL for coverage if errored
         target = err ? '' : `${process.env['WEBHOOK_PROXY_URL']}/${ENDPOINT}/coverage/${job.data.sha}`;
     } else {
-        target = `${process.env['WEBHOOK_PROXY_URL']}/${ENDPOINT}/${job.data.sha}`;
+        let context = job.data.context.split('/')[0];
+        target = `${process.env['WEBHOOK_PROXY_URL']}/${ENDPOINT}/${job.data.sha}?context=${context}`;
     }
 
     // Update status if error occurred

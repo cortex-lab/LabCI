@@ -353,11 +353,15 @@ async function buildRoutine(job) {
     const repoPath = getRepoPath(data.repo);
     const sha = data['sha'];
     const logDir = path.join(config.dataPath, 'reports', sha);
-    const checkName = '_' + (data.context || '').split('/')[0]
-    const logName = path.join(logDir, `std_output-${shortID(sha)}${checkName}.log`);
+    const logName = path.join(logDir, `std_output-${shortID(sha)}.log`);
     await fs.promises.mkdir(logDir, { recursive: true });
     const logDump = fs.createWriteStream(logName, {flags: 'w'});
-    logDump.on('close', () => debug('Closing log file'));
+    logDump.on('close', () => {
+        debug('Renaming log file');
+        let checkName = '_' + (data.context || '').split('/')[0];
+        let newName = path.join(logDir, `std_output-${shortID(sha)}${checkName}.log`);
+        fs.rename(logName, newName, () => debug(`Log renamed to ${newName}`));
+    });
     const ops = config.shell ? {'shell': config.shell} : {};
 
     const init = () => debug('Executing pipeline for job #%g', job.id);
