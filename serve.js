@@ -258,7 +258,7 @@ srv.get(`/${ENDPOINT}/raw/:id`, function (req, res) {
     let log_only = (req.query.type || '').startsWith('log');
     let checkName = req.query.context? '_' + req.query.context : '';
     let filename = log_only ? `test_output.log` : `std_output-${id}${checkName}.log`;
-    log(`log query context = ${req.query.context}; filename = ${filename}`);
+
     let jobStatus = 'finished';
     for (let job of queue.pile) {
         if (job.data.sha === req.params.id) {
