@@ -1,6 +1,16 @@
 # Changelog
 
-## [Latest](https://github.com/cortex-lab/matlab-ci/commits/master) [3.0.1]
+## [Latest](https://github.com/cortex-lab/matlab-ci/commits/master) [3.1.0]
+
+## Modified
+
+ - dependency vulnerability fixes
+
+## Added
+
+ - separate logs and context log URL parameter
+
+## [3.0.1]
 
 ## Modified
 
@@ -8,7 +18,7 @@
  - npm name changed to 'lab-ci' to conform with package rules
  - fix build shield in readme
  
- ## [3.0.0]
+## [3.0.0]
  
 ## Added
 
@@ -20,7 +30,7 @@
  - param to skip checks when only ignored files changed
  - param to skip draft PR event checks 
  
- ## Modified
+## Modified
  
  - renamed MATLAB-CI to labCI
  - records endpoint can return pending jobs
