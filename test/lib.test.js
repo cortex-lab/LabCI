@@ -408,7 +408,7 @@ describe('running tests', () => {
     it('expect default routine', fin => {
         // Create a job field with no routine field
         job.done = validate;
-        let log = path.join(config.dataPath, 'reports', ids[0], 'std_output-cabe27e_.log');
+        let log = path.join(config.dataPath, 'reports', ids[0], 'std_output-cabe27e.log');
         let tasks = config['routines']['*'].map(x => path.resolve(path.join(__dirname, '..', x)));
         spawnStub.callsFake(childProcessStub());
         lib.buildRoutine(job);

@@ -221,7 +221,7 @@ function addParam(url, ...args) {
     if (url.indexOf('&') === -1 && !url.endsWith('/')) {
         url += '/';
     }
-    for (param of args) {
+    for (let param of args) {
         url += (/\?/g.test(url) ? '&' : '?') + param;
     }
     return url;

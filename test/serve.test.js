@@ -650,6 +650,7 @@ describe('logs endpoint', () => {
     var logData;  // The text in our log
     var scope;  // Our server mock
     var HTMLlog;  // Our HTML log page
+    var mainLog;  // The main (collated) log file path
 
     before(function () {
         queue.process(() => {
@@ -657,9 +658,13 @@ describe('logs endpoint', () => {
         const log_path = path.join(config.dataPath, 'reports', SHA);
         logData = ['hello world', 'foobar'];
         scope = nock('https://api.github.com');
-        let file = path.join(log_path, `std_output-${SHA.substr(0, 7)}_continuous-integration.log`);
+        let filename = `std_output-${SHA.substr(0, 7)}`;
+        mainLog = path.join(log_path, filename) + '.log';
+        let file1 = path.join(log_path, `${filename}_continuous-integration.log`);
+        let file2 = path.join(log_path, `${filename}_coverage.log`);
         fs.mkdirSync(log_path, {recursive: true});
-        fs.writeFileSync(file, logData[0]);
+        fs.writeFileSync(file1, logData[0]);
+        fs.writeFileSync(file2, logData[0]);
         fs.writeFileSync(path.join(log_path, 'test_output.log'), logData[1]);
         HTMLlog = fs.readFileSync('./public/log.html', 'utf8');
     });
@@ -701,6 +706,9 @@ describe('logs endpoint', () => {
             .end(function (err, res) {
                 if (err) return done(err);
                 expect(res.text).contains(logData[0]);
+                // With no context param should concatenate log files
+                expect(res.text.split(/\r\n|\r|\n/).length).gt(3);
+                expect(fs.existsSync(mainLog)).true;
                 done();
             });
     });
@@ -739,6 +747,18 @@ describe('logs endpoint', () => {
             .end(function (err, res) {
                 if (err) return done(err);
                 expect(res.text).contains(logData[1]);
+                done();
+            });
+    });
+
+    it('expect context param', done => {
+        request(srv)
+            .get(`/${ENDPOINT}/raw/${SHA}?context=coverage`)
+            .expect(200)
+            .expect('X-CI-JobStatus', 'finished')
+            .end(function (err, res) {
+                if (err) return done(err);
+                expect(res.text).equals(logData[0]);
                 done();
             });
     });

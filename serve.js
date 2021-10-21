@@ -3,6 +3,7 @@
  * middleware for authenticating Github requests and serving local test reports.
  */
 const fs = require('fs');
+const cp = require('child_process');  // for collating logs
 const path = require('path');
 
 const express = require('express');
@@ -281,10 +282,26 @@ srv.get(`/${ENDPOINT}/raw/:id`, function (req, res) {
         }
     };
 
-    // if (!(req.query.context) && !(fs.existsSync(path.path(options.root, filename)))) {
-    //     // Collage logs
-    //     require('child_process').execSync(`cat *.log > ${filename}`, {cwd: options.root});
-    // }
+    const noLogFile = !(fs.existsSync(path.join(options.root, filename)));
+    if (!(req.query.context) && fs.existsSync(options.root) && noLogFile) {
+        // Collate logs into one file with filename as separator
+        let cmd;
+        let logPattern = (log_only ? 'test' : 'std') + '*.log';
+        switch (process.platform) {
+            case 'win32': {
+                let sep = ':'.repeat(14);
+                cmd = `for %f in (${logPattern}) do `;
+                cmd += `(echo ${sep} & echo %f & echo ${sep} & echo. & type "%f" & echo.)`;
+            } break;
+            case 'linux':
+                cmd = `more ${logPattern} | cat`;
+                break;
+            default:  // *nix command
+                cmd = 'head -n 99999 ' + logPattern;
+        }
+
+        cp.execSync(cmd + ` >> ${filename}`, {cwd: options.root});
+    }
 
     res.sendFile(filename, options, function (err) {
         if (err) {
@@ -535,7 +552,7 @@ async function eventCallback(event) {
         let data = Object.assign({}, job_template);
         data.context = `${check}/${process.env['USERDOMAIN'] || process.env['NAME']}`;
         data.routine = lib.context2routine(check);
-        let targetURL = `${process.env['WEBHOOK_PROXY_URL']}/log/${data.sha}?refresh=1`;
+        let targetURL = `${process.env['WEBHOOK_PROXY_URL']}/log/${data.sha}?refresh=1&context=${check}`;
         switch (check) {
             case 'coverage':
                 data.description = 'Checking coverage';
