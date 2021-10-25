@@ -285,6 +285,7 @@ srv.get(`/${ENDPOINT}/raw/:id`, function (req, res) {
     const noLogFile = !(fs.existsSync(path.join(options.root, filename)));
     if (!(req.query.context) && fs.existsSync(options.root) && noLogFile) {
         // Collate logs into one file with filename as separator
+        log('Collating logs...');
         let cmd;
         let logPattern = (log_only ? 'test' : 'std') + '*.log';
         switch (process.platform) {
@@ -552,7 +553,7 @@ async function eventCallback(event) {
         let data = Object.assign({}, job_template);
         data.context = `${check}/${process.env['USERDOMAIN'] || process.env['NAME']}`;
         data.routine = lib.context2routine(check);
-        let targetURL = `${process.env['WEBHOOK_PROXY_URL']}/log/${data.sha}?refresh=1&context=${check}`;
+        let targetURL = `${process.env['WEBHOOK_PROXY_URL']}/log/${data.sha}?refresh=1`;
         switch (check) {
             case 'coverage':
                 data.description = 'Checking coverage';
