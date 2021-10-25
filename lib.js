@@ -579,7 +579,8 @@ function compareCoverage(job) {
     if (records.filter(o => o.status === 'error').length > 0) {
         log('One or more have error status; cannot compare coverage');
         job.data.status = 'failure';
-        job.data.description = 'Failed to determine coverage as tests incomplete due to errors';
+        let which = records[0].status === 'error' ? 'HEAD' : 'BASE';  // Which branch is failing?
+        job.data.description = `Failed to determine coverage as tests incomplete on ${which} due to errors`;
 
         // Both records present and they have coverage
     } else if (records.length === 2 && hasCoverage) {
