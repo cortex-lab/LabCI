@@ -53,7 +53,7 @@ async function updateLog() {
     const queryString = window.location.search;
     const urlParams = new URLSearchParams(queryString);
 
-    const url = '/logs/raw/' + id;
+    const url = `/logs/raw/${id}?${urlParams}`;  // Pass params on to endpoint
     // If the console is empty, add some loading text
     if (!contentDiv.innerHTML) {
        contentDiv.innerHTML = 'Loading log....' + cursor;
@@ -64,9 +64,6 @@ async function updateLog() {
     let options = {};
     if (lastModified) {
         options['headers'] = { 'If-Modified-Since': lastModified };
-    }
-    if (urlParams.has('type')) {
-        options['query'] = {'type': urlParams.get('type')};
     }
 
     let response = await fetch(url, options);

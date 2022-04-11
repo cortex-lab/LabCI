@@ -3,6 +3,7 @@
  * middleware for authenticating Github requests and serving local test reports.
  */
 const fs = require('fs');
+const cp = require('child_process');  // for collating logs
 const path = require('path');
 
 const express = require('express');
@@ -256,14 +257,9 @@ srv.get(`/log/:id`, function (req, res) {
 srv.get(`/${ENDPOINT}/raw/:id`, function (req, res) {
     let id = lib.shortID(req.params.id);
     let log_only = (req.query.type || '').startsWith('log');
-    // let default_context = '';
-    // for (let x of config.events) {
-    //    if (x.checks) {
-    //       default_context = '_' + (Array.isArray(x.checks)? x.checks.pop(): x.checks);
-    //       break;
-    //    }
-    // }
-    let filename = log_only ? `test_output.log` : `std_output-${id}.log`;
+    let checkName = req.query.context? '_' + req.query.context : '';
+    let filename = log_only ? `test_output.log` : `std_output-${id}${checkName}.log`;
+
     let jobStatus = 'finished';
     for (let job of queue.pile) {
         if (job.data.sha === req.params.id) {
@@ -285,6 +281,28 @@ srv.get(`/${ENDPOINT}/raw/:id`, function (req, res) {
             'X-CI-JobStatus': jobStatus
         }
     };
+
+    const noLogFile = !(fs.existsSync(path.join(options.root, filename)));
+    if (!(req.query.context) && fs.existsSync(options.root) && noLogFile) {
+        // Collate logs into one file with filename as separator
+        log('Collating logs...');
+        let cmd;
+        let logPattern = (log_only ? 'test' : 'std') + '*.log';
+        switch (process.platform) {
+            case 'win32': {
+                let sep = ':'.repeat(14);
+                cmd = `for %f in (${logPattern}) do `;
+                cmd += `(echo ${sep} & echo %f & echo ${sep} & echo. & type "%f" & echo.)`;
+            } break;
+            case 'linux':
+                cmd = `more ${logPattern} | cat`;
+                break;
+            default:  // *nix command
+                cmd = 'head -n 99999 ' + logPattern;
+        }
+
+        cp.execSync(cmd + ` >> ${filename}`, {cwd: options.root});
+    }
 
     res.sendFile(filename, options, function (err) {
         if (err) {
@@ -587,7 +605,8 @@ queue.on('finish', (err, job) => { // On job end post result to API
         // No URL for coverage if errored
         target = err ? '' : `${process.env['WEBHOOK_PROXY_URL']}/${ENDPOINT}/coverage/${job.data.sha}`;
     } else {
-        target = `${process.env['WEBHOOK_PROXY_URL']}/${ENDPOINT}/${job.data.sha}`;
+        let context = job.data.context.split('/')[0];
+        target = `${process.env['WEBHOOK_PROXY_URL']}/${ENDPOINT}/${job.data.sha}?context=${context}`;
     }
 
     // Update status if error occurred

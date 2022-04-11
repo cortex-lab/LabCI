@@ -221,7 +221,7 @@ function addParam(url, ...args) {
     if (url.indexOf('&') === -1 && !url.endsWith('/')) {
         url += '/';
     }
-    for (param of args) {
+    for (let param of args) {
         url += (/\?/g.test(url) ? '&' : '?') + param;
     }
     return url;
@@ -356,7 +356,13 @@ async function buildRoutine(job) {
     const logName = path.join(logDir, `std_output-${shortID(sha)}.log`);
     await fs.promises.mkdir(logDir, { recursive: true });
     const logDump = fs.createWriteStream(logName, {flags: 'w'});
-    logDump.on('close', () => debug('Closing log file'));
+    logDump.on('close', () => {
+        debug('Renaming log file');
+        let checkName = '_' + (data.context || '').split('/')[0];
+        let newName = path.join(logDir, `std_output-${shortID(sha)}${checkName}.log`);
+        // fs.rename(logName, newName, () => debug(`Log renamed to ${newName}`));
+        fs.copyFile(logName, newName, () => debug(`Log copied to ${newName}`));
+    });
     const ops = config.shell ? {'shell': config.shell} : {};
 
     const init = () => debug('Executing pipeline for job #%g', job.id);
@@ -573,7 +579,8 @@ function compareCoverage(job) {
     if (records.filter(o => o.status === 'error').length > 0) {
         log('One or more have error status; cannot compare coverage');
         job.data.status = 'failure';
-        job.data.description = 'Failed to determine coverage as tests incomplete due to errors';
+        let which = records[0].status === 'error' ? 'HEAD' : 'BASE';  // Which branch is failing?
+        job.data.description = `Failed to determine coverage as tests incomplete on ${which} due to errors`;
 
         // Both records present and they have coverage
     } else if (records.length === 2 && hasCoverage) {
