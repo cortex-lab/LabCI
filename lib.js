@@ -47,27 +47,6 @@ function isSHA(id) {
 
 
 /**
- * Fetch a full-length SHA commit corresponding to a given ID.
- * @param {string} id - A commit SHA of any length, or branch name.
- * @param {boolean|null} [isBranch] - If true, id treated as a branch name. Inferred from id by default.
- * @param {string} [module] - (Sub)module name. REPO_NAME by default.
- * @return {Promise} - Resolved to full commit SHA.
- */
-function fetchCommit(id, isBranch = null, module) {
-    isBranch = isBranch === null ? !isSHA(id) : isBranch;
-    const data = {
-        owner: process.env['REPO_OWNER'],
-        repo: module || process.env.REPO_NAME,
-        id: id
-    };
-    let endpoint = `GET /repos/:owner/:repo/${isBranch ? 'branches' : 'commits'}/:id`;
-    return request(endpoint, data).then(response => {
-        return isBranch ? response.data.commit.sha : response.data.sha;
-    });
-}
-
-
-/**
  * Returns a full filepath.  Plays nicely with ~.
  * @param {String} p - Path to resolve.
  * @returns {String} A full path
@@ -359,13 +338,13 @@ function startJobTimer(job, kill_children = false) {
 
 /**
  * Set dynamic env variables for node-coveralls.
+ * NB: This does not support submodules.
  * @param {Object} job - The Job with an associated process in the data field.
  */
 async function initCoveralls(job) {
     log.extend('pipeline')('Setting COVERALLS env variables');
     process.env.COVERALLS_SERVICE_NAME = job.data.context;
-    // todo check if submodule
-    process.env.COVERALLS_GIT_COMMIT = await fetchCommit(job.data.sha);
+    process.env.COVERALLS_GIT_COMMIT = job.data.sha;
     process.env.COVERALLS_SERVICE_JOB_ID = job.id;
 }
 
@@ -756,5 +735,5 @@ module.exports = {
     ensureArray, loadTestRecords, compareCoverage, computeCoverage, getBadgeData, log, shortID,
     openTunnel, APIError, queue, partial, startJobTimer, updateJobFromRecord, shortCircuit, isSHA,
     fullpath, strToBool, saveTestRecords, listSubmodules, getRepoPath, addParam, context2routine,
-    buildRoutine, fetchCommit
+    buildRoutine
 };

@@ -8,7 +8,7 @@ const assert = require('chai').assert;
 const appAuth = require('@octokit/auth-app');
 
 const APIError = require('../lib').APIError;
-const {updateStatus, setAccessToken, eventCallback, srv} = require('../serve');
+const {updateStatus, setAccessToken, eventCallback, srv, fetchCommit} = require('../serve');
 const queue = require('../lib').queue;
 const config = require('../config/config').settings;
 const {token} = require('./fixtures/static');
@@ -788,6 +788,55 @@ describe('logs endpoint', () => {
             if (err) throw err;
             done();
         });
+    });
+
+});
+
+
+/**
+ * This tests the fetchCommit function.  When provided an incomplete SHA or branch name, it should
+ * return the full commit hash.
+ */
+describe('fetchCommit', () => {
+    var scope;  // Our server mock
+
+    before(function () {
+        scope = nock('https://api.github.com');
+    });
+
+    after(function () {
+        nock.cleanAll();
+    });
+
+    it('expect full SHA from short id', (done) => {
+        const id = SHA.slice(0, 7);
+        scope.get(`/repos/${process.env.REPO_OWNER}/${process.env.REPO_NAME}/commits/${id}`)
+            .reply(200, {sha: SHA});
+        // Check full ID returned
+        fetchCommit(id)
+            .then(id => {
+                expect(id).eq(SHA);
+                scope.done();
+                done();
+            });
+    });
+
+    it('expect full SHA from branch and module', (done) => {
+        const branch = 'develop';
+        const repo = 'foobar';
+        scope.get(`/repos/${process.env.REPO_OWNER}/${repo}/branches/${branch}`)
+            .reply(200, {
+                commit: {
+                    sha: SHA
+                }
+            });
+        // Check full ID returned
+        fetchCommit(branch, true, repo)
+            .then(id => {
+                expect(id).eq(SHA);
+                scope.done();
+                done();
+            });
     });
 
 });

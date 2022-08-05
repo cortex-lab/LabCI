@@ -121,13 +121,33 @@ srv.post('/github', async (req, res, next) => {
 ///////////////////// STATUS DETAILS /////////////////////
 
 /**
+ * Serve the test records for requested commit id.  Returns JSON data for the commit.
+ * @param {string} id - A commit SHA of any length, or branch name.
+ * @param {boolean|null} [isBranch] - If true, id treated as a branch name. Inferred from id by default.
+ * @param {string} [module] - (Sub)module name. REPO_NAME by default.
+ * @return {Promise} - Resolved to full commit SHA.
+ */
+function fetchCommit(id, isBranch = null, module) {
+    isBranch = isBranch === null ? !lib.isSHA(id) : isBranch;
+    const data = {
+        owner: process.env['REPO_OWNER'],
+        repo: module || process.env.REPO_NAME,
+        id: id
+    };
+    let endpoint = `GET /repos/:owner/:repo/${isBranch ? 'branches' : 'commits'}/:id`;
+    return request(endpoint, data).then(response => {
+        return isBranch ? response.data.commit.sha : response.data.sha;
+    });
+}
+
+/**
  * Parse the short SHA or branch name and redirect to static reports directory.
  */
 srv.get(`/coverage/:id`, (req, res) => {
     let id = lib.shortID(req.params.id);
     let isSHA = (req.query.branch || !lib.isSHA(req.params.id)) === false;
     console.log('Request for test coverage for ' + (isSHA ? `commit ${id}` : `branch ${req.params.id}`));
-    lib.fetchCommit(req.params.id, !isSHA, req.query.module)
+    fetchCommit(req.params.id, !isSHA, req.query.module)
         .then(id => {
             log('Commit ID found: %s', id);
             res.redirect(301, `/${ENDPOINT}/coverage/${id}`);
@@ -158,7 +178,7 @@ srv.get(`/${ENDPOINT}/records/:id`, function (req, res) {
     let id = lib.shortID(req.params.id);
     let isSHA = (req.query.branch || !lib.isSHA(req.params.id)) === false;
     console.log('Request for test records for ' + (isSHA ? `commit ${id}` : `branch ${req.params.id}`));
-    lib.fetchCommit(req.params.id, !isSHA, req.query.module)
+    fetchCommit(req.params.id, !isSHA, req.query.module)
         .then(id => {
             log('Commit ID found: %s', id);
             let record = lib.loadTestRecords(id);
@@ -203,7 +223,7 @@ srv.get(`/${ENDPOINT}/:id`, function (req, res) {
         `Request for test ${log_only ? 'log' : 'stdout'} for ` +
         (isSHA ? `commit ${id}` : `branch ${req.params.id}`)
     );
-    lib.fetchCommit(req.params.id, !isSHA, req.query.module)
+    fetchCommit(req.params.id, !isSHA, req.query.module)
         .then(id => res.redirect(301, '/log/' + id))
         .catch(err => {
             log('%s', err.message);
@@ -331,7 +351,7 @@ srv.get('/:badge/:repo/:id', async (req, res) => {
     }
     let isSHA = lib.isSHA(req.params.id);
     // Find head commit of branch
-    return lib.fetchCommit(req.params.id, !isSHA, req.params.repo)
+    return fetchCommit(req.params.id, !isSHA, req.params.repo)
         .then(id => {
             data['context'] = context;
             data['sha'] = id;
@@ -603,4 +623,4 @@ queue.on('finish', (err, job) => { // On job end post result to API
         });
 });
 
-module.exports = {updateStatus, srv, handler, setAccessToken, eventCallback};
+module.exports = {updateStatus, srv, handler, setAccessToken, eventCallback, fetchCommit};

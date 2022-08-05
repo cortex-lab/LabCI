@@ -11,7 +11,6 @@ const expect = require('chai').expect;
 const lib = require('../lib');
 const queue = require('../lib').queue;
 const {stdErr} = require('./fixtures/static');
-const nock = require('nock');  // for mocking outbound requests
 
 ids = [
     'cabe27e5c8b8cb7cdc4e152f1cf013a89adc7a71',
@@ -52,55 +51,6 @@ describe('strToBool function', () => {
             expect(lib.strToBool(x)).false;
         });
     });
-});
-
-
-/**
- * This tests the fetchCommit function.  When provided an incomplete SHA or branch name, it should
- * return the full commit hash.
- */
-describe('fetchCommit', () => {
-    var scope;  // Our server mock
-
-    before(function () {
-        scope = nock('https://api.github.com');
-    });
-
-    after(function () {
-        nock.cleanAll();
-    });
-
-    it('expect full SHA from short id', (done) => {
-        const id = ids[0].slice(0, 7);
-        scope.get(`/repos/${process.env.REPO_OWNER}/${process.env.REPO_NAME}/commits/${id}`)
-            .reply(200, {sha: ids[0]});
-        // Check full ID returned
-        lib.fetchCommit(id)
-            .then(id => {
-                expect(id).eq(ids[0]);
-                scope.done();
-                done();
-            });
-    });
-
-    it('expect full SHA from branch and module', (done) => {
-        const branch = 'develop';
-        const repo = 'foobar';
-        scope.get(`/repos/${process.env.REPO_OWNER}/${repo}/branches/${branch}`)
-            .reply(200, {
-                commit: {
-                    sha: ids[0]
-                }
-            });
-        // Check full ID returned
-        lib.fetchCommit(branch, true, repo)
-            .then(id => {
-                expect(id).eq(ids[0]);
-                scope.done();
-                done();
-            });
-    });
-
 });
 
 
