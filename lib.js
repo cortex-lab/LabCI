@@ -54,7 +54,7 @@ function isSHA(id) {
  * @return {Promise} - Resolved to full commit SHA.
  */
 function fetchCommit(id, isBranch = null, module) {
-    isBranch = isBranch === null ? !lib.isSHA(id) : isBranch;
+    isBranch = isBranch === null ? !isSHA(id) : isBranch;
     const data = {
         owner: process.env['REPO_OWNER'],
         repo: module || process.env.REPO_NAME,
