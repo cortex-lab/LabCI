@@ -12,6 +12,7 @@ const shell = require('shelljs');
 
 const config = require('./config/config').settings;
 const Coverage = require('./coverage');
+const { request } = require('@octokit/request');
 const queue = new (require('./queue.js'))();  // The queue object for our app to use
 
 
@@ -42,6 +43,27 @@ const _log = log.extend('lib');
 function isSHA(id) {
     const regex = /^[0-9a-f]{7,40}$/i;
     return (typeof id === 'string' || id instanceof String) && id.match(regex) !== null;
+}
+
+
+/**
+ * Fetch a full-length SHA commit corresponding to a given ID.
+ * @param {string} id - A commit SHA of any length, or branch name.
+ * @param {boolean|null} [isBranch] - If true, id treated as a branch name. Inferred from id by default.
+ * @param {string} [module] - (Sub)module name. REPO_NAME by default.
+ * @return {Promise} - Resolved to full commit SHA.
+ */
+function fetchCommit(id, isBranch = null, module) {
+    isBranch = isBranch === null ? !lib.isSHA(id) : isBranch;
+    const data = {
+        owner: process.env['REPO_OWNER'],
+        repo: module || process.env.REPO_NAME,
+        id: id
+    };
+    let endpoint = `GET /repos/:owner/:repo/${isBranch ? 'branches' : 'commits'}/:id`;
+    return request(endpoint, data).then(response => {
+        return isBranch ? response.data.commit.sha : response.data.sha;
+    });
 }
 
 
@@ -336,8 +358,20 @@ function startJobTimer(job, kill_children = false) {
 
 
 /**
+ * Set dynamic env variables for node-coveralls.
+ * @param {Object} job - The Job with an associated process in the data field.
+ */
+async function initCoveralls(job) {
+    log.extend('pipeline')('Setting COVERALLS env variables');
+    process.env.COVERALLS_SERVICE_NAME = job.data.context;
+    // todo check if submodule
+    process.env.COVERALLS_GIT_COMMIT = await fetchCommit(job.data.sha);
+    process.env.COVERALLS_SERVICE_JOB_ID = job.id;
+}
+
+/**
  * Build task pipeline.  Takes a list of scripts/functions and builds a promise chain.
- * @param {Object} job - The path of the repository
+ * @param {Object} job - The Job with an associated process in the data field.
  * @returns {Promise} - The job routine
  */
 async function buildRoutine(job) {
@@ -364,6 +398,9 @@ async function buildRoutine(job) {
         fs.copyFile(logName, newName, () => debug(`Log copied to ${newName}`));
     });
     const ops = config.shell ? {'shell': config.shell} : {};
+
+    // If environment variable COVERALLS_REPO_TOKEN is not null, set dynamic variables
+    if (process.env.COVERALLS_REPO_TOKEN) await initCoveralls(job);
 
     const init = () => debug('Executing pipeline for job #%g', job.id);
     const routine = tasks.reduce(applyTask, Promise.resolve().then(init));
@@ -719,5 +756,5 @@ module.exports = {
     ensureArray, loadTestRecords, compareCoverage, computeCoverage, getBadgeData, log, shortID,
     openTunnel, APIError, queue, partial, startJobTimer, updateJobFromRecord, shortCircuit, isSHA,
     fullpath, strToBool, saveTestRecords, listSubmodules, getRepoPath, addParam, context2routine,
-    buildRoutine
+    buildRoutine, fetchCommit
 };

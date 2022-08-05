@@ -111,6 +111,10 @@ Your test script must do the following:
 2. Save the results into the JSON cache file without duplication
 3. For code coverage the script must either save the coverage directly, or export a Cobertura formatted XML file.
 
+## Coveralls
+Coverage information can be sent to coveralls.io using the [node-coveralls](https://github.com/nickmerwin/node-coveralls) package.
+Adding `COVERALLS_REPO_TOKEN` to the .env file will cause the CI to set other dynamic env variables before running a pipeline.
+
 ## Built With
 
 * [LocalTunnel](https://localtunnel.me) - A secure tunneling service
