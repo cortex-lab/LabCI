@@ -479,10 +479,11 @@ async function eventCallback(event) {
         default: // Shouldn't get this far
             throw new TypeError(`event "${event.event}" not supported`);
     }
+    ref = job_template['branch'];
 
     // Log the event
     console.log('Received a %s event for %s to %s',
-        eventType.replace('_', ' '), job_template['repo'], job_template['branch']);
+        eventType.replace('_', ' '), job_template['repo'], ref);
 
     // Determine what to do from settings
     if (!(eventType in config.events)) {

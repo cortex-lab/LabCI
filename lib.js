@@ -12,7 +12,6 @@ const shell = require('shelljs');
 
 const config = require('./config/config').settings;
 const Coverage = require('./coverage');
-const { request } = require('@octokit/request');
 const queue = new (require('./queue.js'))();  // The queue object for our app to use
 
 
@@ -342,12 +341,18 @@ function startJobTimer(job, kill_children = false) {
  * @param {Object} job - The Job with an associated process in the data field.
  */
 async function initCoveralls(job) {
-    log.extend('pipeline')('Setting COVERALLS env variables');
+    const debug = log.extend('pipeline');
+    debug('Setting COVERALLS env variables');
     process.env.COVERALLS_SERVICE_NAME = job.data.context;
+    debug('COVERALLS_SERVICE_NAME = %s', job.data.context);
     process.env.COVERALLS_GIT_COMMIT = job.data.sha;
+    debug('COVERALLS_GIT_COMMIT = %s', job.data.sha);
     process.env.COVERALLS_SERVICE_JOB_ID = job.id;
+    debug('COVERALLS_SERVICE_JOB_ID = %i', job.id);
     process.env.COVERALLS_GIT_BRANCH = job.data.branch;
+    debug('COVERALLS_GIT_BRANCH = %s', job.data.branch);
     process.env.CI_PULL_REQUEST = job.data.pull_number;
+    debug('CI_PULL_REQUEST = %s', job.data.pull_number);
 }
 
 /**
