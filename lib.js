@@ -346,6 +346,8 @@ async function initCoveralls(job) {
     process.env.COVERALLS_SERVICE_NAME = job.data.context;
     process.env.COVERALLS_GIT_COMMIT = job.data.sha;
     process.env.COVERALLS_SERVICE_JOB_ID = job.id;
+    process.env.COVERALLS_GIT_BRANCH = job.data.branch;
+    process.env.CI_PULL_REQUEST = job.data.pull_number;
 }
 
 /**
