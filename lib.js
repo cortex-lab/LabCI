@@ -12,6 +12,7 @@ const shell = require('shelljs');
 
 const config = require('./config/config').settings;
 const Coverage = require('./coverage');
+const { request } = require('@octokit/request');
 const queue = new (require('./queue.js'))();  // The queue object for our app to use
 
 
@@ -336,8 +337,22 @@ function startJobTimer(job, kill_children = false) {
 
 
 /**
+ * Set dynamic env variables for node-coveralls.
+ * NB: This does not support submodules.
+ * @param {Object} job - The Job with an associated process in the data field.
+ */
+async function initCoveralls(job) {
+    log.extend('pipeline')('Setting COVERALLS env variables');
+    process.env.COVERALLS_SERVICE_NAME = job.data.context;
+    process.env.COVERALLS_GIT_COMMIT = job.data.sha;
+    process.env.COVERALLS_SERVICE_JOB_ID = job.id;
+    process.env.COVERALLS_GIT_BRANCH = job.data.branch;
+    process.env.CI_PULL_REQUEST = job.data.pull_number;
+}
+
+/**
  * Build task pipeline.  Takes a list of scripts/functions and builds a promise chain.
- * @param {Object} job - The path of the repository
+ * @param {Object} job - The Job with an associated process in the data field.
  * @returns {Promise} - The job routine
  */
 async function buildRoutine(job) {
@@ -364,6 +379,9 @@ async function buildRoutine(job) {
         fs.copyFile(logName, newName, () => debug(`Log copied to ${newName}`));
     });
     const ops = config.shell ? {'shell': config.shell} : {};
+
+    // If environment variable COVERALLS_REPO_TOKEN is not null, set dynamic variables
+    if (process.env.COVERALLS_REPO_TOKEN) await initCoveralls(job);
 
     const init = () => debug('Executing pipeline for job #%g', job.id);
     const routine = tasks.reduce(applyTask, Promise.resolve().then(init));

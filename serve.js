@@ -431,7 +431,7 @@ async function eventCallback(event) {
         status: 'pending',  // The check state to update our context with
         description: null,  // A brief description of what transpired
         context: null, // The precise check name, keeps track of what check we're doing
-        routine: null  // A list of scripts call call
+        routine: null  // A list of scripts to call
     };
 
     // Double-check the event was intended for our app.  This is also done using the headers before
@@ -453,9 +453,10 @@ async function eventCallback(event) {
     switch (eventType) {
         case 'pull_request':
             let pr = event.payload.pull_request;
-            ref = pr.head.ref;
             job_template['sha'] = pr.head.sha;
             job_template['base'] = pr.base.sha;
+            job_template['pull_number'] = pr.number;  // For coveralls.io
+            job_template['branch'] = pr.head.ref;  // For coveralls.io
             // Check for repo fork; throw error if forked  // TODO Add full stack test for this behaviour
             let isFork = (pr.base.repo.owner.login !== pr.head.repo.owner.login)
                 || (pr.base.repo.owner.login !== process.env['REPO_OWNER'])
@@ -469,9 +470,9 @@ async function eventCallback(event) {
             }
             break;
         case 'push':
-            ref = event.payload.ref;
             job_template['sha'] = event.payload.head_commit.id || event.payload.after;  // Run tests for head commit only
             job_template['base'] = event.payload.before;
+            job_template['branch'] = event.payload.ref;  // For coveralls.io
             filesGET['base'] = event.payload.before;
             filesGET['head'] = event.payload.head_commit.id || event.payload.after;
             break;
@@ -481,7 +482,7 @@ async function eventCallback(event) {
 
     // Log the event
     console.log('Received a %s event for %s to %s',
-        eventType.replace('_', ' '), job_template['repo'], ref);
+        eventType.replace('_', ' '), job_template['repo'], job_template['branch']);
 
     // Determine what to do from settings
     if (!(eventType in config.events)) {
