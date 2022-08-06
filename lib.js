@@ -343,16 +343,16 @@ function startJobTimer(job, kill_children = false) {
 async function initCoveralls(job) {
     const debug = log.extend('pipeline');
     debug('Setting COVERALLS env variables');
-    process.env.COVERALLS_SERVICE_NAME = job.data.context;
-    debug('COVERALLS_SERVICE_NAME = %s', job.data.context);
-    process.env.COVERALLS_GIT_COMMIT = job.data.sha;
-    debug('COVERALLS_GIT_COMMIT = %s', job.data.sha);
     process.env.COVERALLS_SERVICE_JOB_ID = job.id;
-    debug('COVERALLS_SERVICE_JOB_ID = %i', job.id);
-    process.env.COVERALLS_GIT_BRANCH = job.data.branch;
-    debug('COVERALLS_GIT_BRANCH = %s', job.data.branch);
-    process.env.CI_PULL_REQUEST = job.data.pull_number;
-    debug('CI_PULL_REQUEST = %s', job.data.pull_number);
+    const envMap = {
+        'COVERALLS_SERVICE_NAME': job.data.context,
+        'COVERALLS_GIT_COMMIT': job.data.sha,
+        'COVERALLS_GIT_BRANCH': job.data.branch,
+        'CI_PULL_REQUEST': job.data.pull_number
+    };
+    for (let key in envMap) { // assign value or delete key
+        if (envMap[key]) { process.env[key] = envMap[key]; } else { delete process.env[key]; }
+    }
 }
 
 /**
