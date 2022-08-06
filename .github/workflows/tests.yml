@@ -34,5 +34,5 @@ jobs:
         run: |
           NODE_ENV=testing
           DOTENV_CONFIG_PATH=./test/fixtures/.env.test
-          mocha -r dotenv/config ./test
+          node mocha -r dotenv/config ./test
         if: matrix.os == 'ubuntu-latest'
