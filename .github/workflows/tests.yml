@@ -25,14 +25,5 @@ jobs:
         uses: actions/setup-node@v1
       - name: Install dependencies
         run: npm install
-      - name: Setup env (Windows)
-        run: |
-          set "NODE_ENV=testing"
-          set "DOTENV_CONFIG_PATH=./test/fixtures/.env.test"
-        if: matrix.os == 'windows-latest'
-      - name: Run tests (Linux)
-        run: |
-          NODE_ENV=testing
-          DOTENV_CONFIG_PATH=./test/fixtures/.env.test
-          node mocha -r dotenv/config ./test
-        if: matrix.os == 'ubuntu-latest'
+      - name: Run tests
+        run: npm test
