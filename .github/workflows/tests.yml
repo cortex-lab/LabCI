@@ -17,7 +17,7 @@ jobs:
       fail-fast: false  # Whether to stop execution of other instances
       max-parallel: 4
       matrix:
-        os: ["ubuntu-latest", "windows-latest"]  #  , "macos-latest"
+        os: ["ubuntu-latest"]#, "windows-latest"]  #  , "macos-latest"
     steps:
       - name: Check out code
         uses: actions/checkout@v2
@@ -34,7 +34,8 @@ jobs:
         run: |
           NODE_ENV=testing
           DOTENV_CONFIG_PATH=./test/fixtures/.env.test
-          ls $(dirname $DOTENV_CONFIG_PATH)
         if: matrix.os == 'ubuntu-latest'
       - name: Run tests
-        run: npm test
+        run: |
+          ls -a $(dirname $DOTENV_CONFIG_PATH)
+          npm test
