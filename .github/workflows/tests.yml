@@ -30,12 +30,9 @@ jobs:
           set "NODE_ENV=testing"
           set "DOTENV_CONFIG_PATH=./test/fixtures/.env.test"
         if: matrix.os == 'windows-latest'
-      - name: Setup env (Linux)
+      - name: Run tests (Linux)
         run: |
           NODE_ENV=testing
           DOTENV_CONFIG_PATH=./test/fixtures/.env.test
-        if: matrix.os == 'ubuntu-latest'
-      - name: Run tests
-        run: |
-          ls -a $(dirname $DOTENV_CONFIG_PATH)
           npm test
+        if: matrix.os == 'ubuntu-latest'
