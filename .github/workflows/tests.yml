@@ -9,6 +9,9 @@ on:
   pull_request:
     branches: [ master, develop ]
 
+env:
+  DOTENV_CONFIG_PATH: ./test/fixtures/.env.test
+
 jobs:
   build:
     name: build ${{ matrix.os }}
