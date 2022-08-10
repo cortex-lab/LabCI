@@ -33,7 +33,7 @@ jobs:
       - name: Run tests
         run: |
           npm run coverage
-          npx nyc report --reporter=lcovonly
+          npx nyc report --reporter=lcovonly --reporter text
       - name: Coveralls Parallel
         uses: coverallsapp/github-action@master
         with:
