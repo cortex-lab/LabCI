@@ -5,7 +5,7 @@
   "main": "main.js",
   "scripts": {
     "test": "mocha -r dotenv/config ./test",
-    "coverage": "nyc npm run test",
+    "coverage": "nyc --reporter=text-summary --reporter=text-lcov npm run test",
     "start": "node -r dotenv/config main.js"
   },
   "repository": {
