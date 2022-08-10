@@ -356,7 +356,7 @@ srv.get('/:badge/:repo/:id', async (req, res) => {
             data['context'] = context;
             data['sha'] = id;
             data['force'] = req.query.force === '' || lib.strToBool(req.query.force);
-            if (!isSHA) { data['branch'] = req.params.id; }  // add branch name for coveralls
+            if (!isSHA) data['branch'] = req.params.id;  // add branch name for coveralls
             console.log(`Request for ${req.params.id} ${data.context}`);
             const report = lib.getBadgeData(data);
             // Send report

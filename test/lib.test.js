@@ -351,6 +351,42 @@ describe('Test startJobTimer:', function () {
 
 
 /**
+ * A test for the function initCoveralls.  Should modify the env variables with coveralls data.
+ */
+describe('Test initCoveralls:', function () {
+    var env_bk;
+
+    before(() => {
+        env_bk = process.env;
+    });
+
+    it('expect env modified', function () {
+        const job = {
+            id: Number(Math.floor(Math.random() * 1e6)),
+            data: {
+                sha: ids[0],
+                branch: 'FooBar'
+            }
+        };
+        lib.initCoveralls(job);
+        expect(process.env.COVERALLS_GIT_COMMIT).eq(ids[0]);
+        expect(process.env.COVERALLS_GIT_BRANCH).eq('FooBar');
+        expect(process.env.COVERALLS_SERVICE_JOB_ID).eq(job.id.toString());
+        expect(process.env).to.not.have.property('CI_PULL_REQUEST');
+        expect(process.env).to.not.have.property('COVERALLS_SERVICE_NAME');
+        // Remove branch from job data
+        delete job.data.branch;
+        lib.initCoveralls(job);
+        expect(process.env).to.not.have.property('COVERALLS_GIT_BRANCH');
+    });
+
+    afterEach(() => {
+        process.env = env_bk;
+    });
+});
+
+
+/**
  * This tests the buildRoutine function.
  */
 describe('running tests', () => {

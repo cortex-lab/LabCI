@@ -340,7 +340,7 @@ function startJobTimer(job, kill_children = false) {
  * NB: This does not support submodules.
  * @param {Object} job - The Job with an associated process in the data field.
  */
-async function initCoveralls(job) {
+function initCoveralls(job) {
     const debug = log.extend('pipeline');
     debug('Setting COVERALLS env variables');
     process.env.COVERALLS_SERVICE_JOB_ID = job.id;
@@ -386,7 +386,7 @@ async function buildRoutine(job) {
     const ops = config.shell ? {'shell': config.shell} : {};
 
     // If environment variable COVERALLS_REPO_TOKEN is not null, set dynamic variables
-    if (process.env.COVERALLS_REPO_TOKEN) await initCoveralls(job);
+    if (process.env.COVERALLS_REPO_TOKEN) initCoveralls(job);
 
     const init = () => debug('Executing pipeline for job #%g', job.id);
     const routine = tasks.reduce(applyTask, Promise.resolve().then(init));
@@ -742,5 +742,5 @@ module.exports = {
     ensureArray, loadTestRecords, compareCoverage, computeCoverage, getBadgeData, log, shortID,
     openTunnel, APIError, queue, partial, startJobTimer, updateJobFromRecord, shortCircuit, isSHA,
     fullpath, strToBool, saveTestRecords, listSubmodules, getRepoPath, addParam, context2routine,
-    buildRoutine
+    buildRoutine, initCoveralls
 };
