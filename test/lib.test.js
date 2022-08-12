@@ -340,6 +340,21 @@ describe('Test startJobTimer:', function () {
         clock.tick(config.timeout + 1);
     });
 
+    it('expect SIGKILL', function (done) {
+        // Test second timeout for tests where SIGTERM fails to end process
+        const childProcess = {
+            kill: (sig) => {
+                if (sig === 'SIGKILL') done();
+            },
+            pid: 10108
+        };
+        const job = queue.add({});
+        job.child = childProcess;
+        lib.startJobTimer(job);
+        // Skip to the end...
+        clock.tick(config.timeout + 60001);  // timeout + ~1 minute
+    });
+
     after(() => {
         clock.restore();
     });

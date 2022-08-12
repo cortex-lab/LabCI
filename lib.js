@@ -324,13 +324,21 @@ function getRepoPath(name) {
 function startJobTimer(job, kill_children = false) {
     const timeout = config.timeout || 8 * 60000;  // How long to wait for the tests to run
     return setTimeout(() => {
+        let log = _log.extend('job_timer');
         console.log('Max test time exceeded');
         log(kill_children ? 'Killing all processes' : 'Ending test process');
         let pid = job._child.pid;
+        log('Killing process(es) for job #%g, pid = %d', job.id, pid);
         job._child.kill();
-        if (kill_children) {
-            kill(pid);
-        }
+        if (kill_children) kill(pid);
+        // Give the processes 1 minute before sending a more aggressive signal
+        return setTimeout(() => {
+            if (job._child && job._child.exitCode == null) {
+                log('Failed to kill job process(es); sending SIGKILL (job #%g, pid = %d)', job.id, pid);
+                job._child.kill('SIGKILL');
+                if (kill_children) kill(pid, 'SIGKILL');
+            }
+        }, 60000)
     }, timeout);
 }
 
@@ -534,10 +542,10 @@ async function buildRoutine(job) {
  */
 function computeCoverage(job) {
     if (typeof job.data.coverage !== 'undefined' && job.data.coverage) {
-        console.log('Coverage already computed for job #' + job.id);
+        console.log('Coverage already computed for job #%g', job.id);
         return;
     }
-    console.log('Updating coverage for job #' + job.id);
+    console.log('Updating coverage for job #%g', job.id);
     const xmlPath = path.join(config.dataPath, 'reports', job.data.sha, 'CoverageResults.xml');
     const modules = listSubmodules(process.env.REPO_PATH);
     return Coverage(xmlPath, job.data.repo, job.data.sha, modules).then(obj => {
