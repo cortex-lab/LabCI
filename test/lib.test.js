@@ -342,12 +342,13 @@ describe('Test startJobTimer:', function () {
 
     it('expect SIGKILL', function (done) {
         // Test second timeout for tests where SIGTERM fails to end process
+        let nCalls = 0;
         const childProcess = {
             kill: (sig) => {
-                if (sig === 'SIGKILL') {
+                nCalls++;
+                if (nCalls === 2) {
+                    expect(sig).eq('SIGKILL');
                     done();
-                } else {
-                    done(new Error(`Expected 'SIGKILL', got '${sig}'`));
                 }
             },
             pid: 10108

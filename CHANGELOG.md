@@ -2,6 +2,10 @@
 
 ## [Latest](https://github.com/cortex-lab/matlab-ci/commits/master) [3.2.0]
 
+## Modified
+
+ - if SIGTERM fails to end process(es) in under a minute, SIGKILL is sent
+
 ## Added
 
  - git workflow
