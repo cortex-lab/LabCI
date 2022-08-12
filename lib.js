@@ -248,7 +248,7 @@ async function shortCircuit(job, func = null) {
     // If lazy, load records to check whether we already have the results saved
     if (job.data.force === false) {  // NB: Strict equality; force by default
         _log('Updating job data directly from record for job #%g', job.id);
-        if (updateJobFromRecord(job)) return job.done();  // No need to run tests; skip to complete routine
+        if (await updateJobFromRecord(job)) return job.done();  // No need to run tests; skip to complete routine
     }
 
     // Go ahead and prepare to run tests
@@ -531,7 +531,7 @@ async function buildRoutine(job) {
     async function updateJob(proc) {
         debug('Job routine complete');
         // Attempt to update the job data from the JSON records, throw error if this fails
-        if (!updateJobFromRecord(job)) {
+        if (!await updateJobFromRecord(job)) {
             job.done(new Error('Failed to return test result'));
         } else {
             job.done(); // All good
