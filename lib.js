@@ -248,7 +248,7 @@ async function shortCircuit(job, func = null) {
     // If lazy, load records to check whether we already have the results saved
     if (job.data.force === false) {  // NB: Strict equality; force by default
         _log('Updating job data directly from record for job #%g', job.id);
-        if (await updateJobFromRecord(job)) return job.done();  // No need to run tests; skip to complete routine
+        if (updateJobFromRecord(job)) return job.done();  // No need to run tests; skip to complete routine
     }
 
     // Go ahead and prepare to run tests
@@ -442,6 +442,8 @@ async function buildRoutine(job) {
                         clearTimeout(timer);
                     })
                     .on('close', (code, signal) => {
+                        // FIXME Sometime close is not called after a timeout, maybe because
+                        //  the IO streams are kept open by some process?
                         const callback = (code === 0) ? resolve : reject;
                         const proc = {
                             code: code,
@@ -450,6 +452,8 @@ async function buildRoutine(job) {
                             stderr: stderr,
                             process: child
                         };
+                        // Ensure there's an exitCode as the second kill timer checks for this
+                        if (child.exitCode === null) child.exitCode = -1;
                         callback(proc);
                     });
                 job.child = child;  // Assign the child process to the job
@@ -478,7 +482,7 @@ async function buildRoutine(job) {
                 message = `${errored.code} - Failed to spawn ${file}`;
             }
             // Check if the process was killed (we'll assume by the test timeout callback)
-        } else if (errored.process.killed || errored.signal === 'SIGTERM') {
+        } else if (errored.process.killed || ['SIGTERM', 'SIGKILL'].includes(errored.signal)) {
             message = `Tests stalled after ~${(config.timeout / 60000).toFixed(0)} min`;
         } else {  // Error raised by process; dig through stdout for reason
             debug('error from test function %s', file);
@@ -527,7 +531,7 @@ async function buildRoutine(job) {
     async function updateJob(proc) {
         debug('Job routine complete');
         // Attempt to update the job data from the JSON records, throw error if this fails
-        if (!await updateJobFromRecord(job)) {
+        if (!updateJobFromRecord(job)) {
             job.done(new Error('Failed to return test result'));
         } else {
             job.done(); // All good
