@@ -316,8 +316,12 @@ describe('Test startJobTimer:', function () {
     });
 
     it('expect process killed', function (done) {
+        let nCalls = 0;  // Make sure we only call done once, after first timeout
         const childProcess = {
-            kill: () => { done(); },
+            kill: () => {
+                nCalls++;
+                if (nCalls === 1) done();
+            },
             pid: 10108
         };
         const job = queue.add({});
