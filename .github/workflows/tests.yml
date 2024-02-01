@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  schedule:
+    - cron:  '0 0 * * 0'  # every Sunday at midnight
+  workflow_dispatch:  # For manual triggering
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master, dev ]
+
+env:
+  DOTENV_CONFIG_PATH: ./test/fixtures/.env.test
+
+jobs:
+  build:
+    name: build ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false  # Whether to stop execution of other instances
+      max-parallel: 4
+      matrix:
+        os: ["ubuntu-latest", "windows-latest"]  #  , "macos-latest"
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v2
+      - name: Set up node
+        uses: actions/setup-node@v3
+        with:
+          node-version: 16
+      - name: Install dependencies
+        run: npm install
+      - name: Run tests
+        run: |
+          npm run coverage
+          npx nyc report --reporter=lcovonly --reporter text
+      - name: Coveralls Parallel
+        uses: coverallsapp/github-action@master
+        with:
+          github-token: ${{ secrets.github_token }}
+          flag-name: ${{ matrix.os }}
+          parallel: true
+  finish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+    - name: Coveralls Finished
+      uses: coverallsapp/github-action@master
+      with:
+        github-token: ${{ secrets.github_token }}
+        parallel-finished: true

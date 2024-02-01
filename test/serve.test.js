@@ -1102,18 +1102,18 @@ describe('srv github/', () => {
     /**
      * This is already covered by the setAccessToken test...
      */
-    it('expect token set', done => {
+    xit('expect token set', done => {
         // Although the blob signature won't match, we can at least test that setAccessToken was called
         request(srv)
             .post(`/github`)  // trailing slash essential
             .set({
                 'X-GitHub-Event': 'push',
                 'x-github-hook-installation-target-id': process.env.GITHUB_APP_IDENTIFIER,
-                'X-Hub-Signature': {'sha': SHA},
+                'X-Hub-Signature': `sha1=${SHA}`,
                 'X-GitHub-Delivery': '72d3162e-cc78-11e3-81ab-4c9367dc0958'
             })
             .end(function (err) {
-                expect(scope.pendingMocks().length).lt(2);  // setAccessToken was called
+                expect(scope.pendingMocks().length).eq(1);  // setAccessToken was called
                 err ? done(err) : done();
             });
     });

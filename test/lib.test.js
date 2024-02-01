@@ -316,8 +316,12 @@ describe('Test startJobTimer:', function () {
     });
 
     it('expect process killed', function (done) {
+        let nCalls = 0;  // Make sure we only call done once, after first timeout
         const childProcess = {
-            kill: () => { done(); },
+            kill: () => {
+                nCalls++;
+                if (nCalls === 1) done();
+            },
             pid: 10108
         };
         const job = queue.add({});
@@ -340,12 +344,68 @@ describe('Test startJobTimer:', function () {
         clock.tick(config.timeout + 1);
     });
 
+    it('expect SIGKILL', function (done) {
+        // Test second timeout for tests where SIGTERM fails to end process
+        let nCalls = 0;
+        const childProcess = {
+            kill: (sig) => {
+                nCalls++;
+                if (nCalls === 2) {
+                    expect(sig).eq('SIGKILL');
+                    done();
+                }
+            },
+            pid: 10108
+        };
+        const job = queue.add({});
+        job.child = childProcess;
+        lib.startJobTimer(job);
+        // Skip to the end...
+        clock.tick(config.timeout + 60001);  // timeout + ~1 minute
+    });
+
     after(() => {
         clock.restore();
     });
 
     afterEach(() => {
         queue.pile = [];
+    });
+});
+
+
+/**
+ * A test for the function initCoveralls.  Should modify the env variables with coveralls data.
+ */
+describe('Test initCoveralls:', function () {
+    var env_bk;
+
+    before(() => {
+        env_bk = process.env;
+    });
+
+    it('expect env modified', function () {
+        const job = {
+            id: Number(Math.floor(Math.random() * 1e6)),
+            data: {
+                sha: ids[0],
+                branch: 'FooBar'
+            }
+        };
+        lib.initCoveralls(job);
+        expect(process.env.COVERALLS_GIT_COMMIT).eq(ids[0]);
+        expect(process.env.COVERALLS_GIT_BRANCH).eq('FooBar');
+        expect(process.env.COVERALLS_SERVICE_JOB_ID).eq(job.id.toString());
+        expect(process.env).to.not.have.property('CI_PULL_REQUEST');
+        expect(process.env).to.not.have.property('COVERALLS_SERVICE_NAME');
+        // Remove branch from job data
+        delete job.data.branch;
+        lib.initCoveralls(job);
+        expect(process.env).to.not.have.property('COVERALLS_GIT_BRANCH');
+    });
+
+    afterEach(() => {
+        process.env = env_bk;
     });
 });
 

@@ -324,20 +324,48 @@ function getRepoPath(name) {
 function startJobTimer(job, kill_children = false) {
     const timeout = config.timeout || 8 * 60000;  // How long to wait for the tests to run
     return setTimeout(() => {
+        let log = _log.extend('job_timer');
         console.log('Max test time exceeded');
         log(kill_children ? 'Killing all processes' : 'Ending test process');
         let pid = job._child.pid;
+        log('Killing process(es) for job #%g, pid = %d', job.id, pid);
         job._child.kill();
-        if (kill_children) {
-            kill(pid);
-        }
+        if (kill_children) kill(pid);
+        // Give the processes 1 minute before sending a more aggressive signal
+        return setTimeout(() => {
+            if (job._child && job._child.exitCode == null) {
+                log('Failed to kill job process(es); sending SIGKILL (job #%g, pid = %d)', job.id, pid);
+                job._child.kill('SIGKILL');
+                if (kill_children) kill(pid, 'SIGKILL');
+            }
+        }, 60000)
     }, timeout);
 }
 
 
 /**
+ * Set dynamic env variables for node-coveralls.
+ * NB: This does not support submodules.
+ * @param {Object} job - The Job with an associated process in the data field.
+ */
+function initCoveralls(job) {
+    const debug = log.extend('pipeline');
+    debug('Setting COVERALLS env variables');
+    process.env.COVERALLS_SERVICE_JOB_ID = job.id;
+    const envMap = {
+        'COVERALLS_SERVICE_NAME': job.data.context,
+        'COVERALLS_GIT_COMMIT': job.data.sha,
+        'COVERALLS_GIT_BRANCH': job.data.branch,
+        'CI_PULL_REQUEST': job.data.pull_number
+    };
+    for (let key in envMap) { // assign value or delete key
+        if (envMap[key]) { process.env[key] = envMap[key]; } else { delete process.env[key]; }
+    }
+}
+
+/**
  * Build task pipeline.  Takes a list of scripts/functions and builds a promise chain.
- * @param {Object} job - The path of the repository
+ * @param {Object} job - The Job with an associated process in the data field.
  * @returns {Promise} - The job routine
  */
 async function buildRoutine(job) {
@@ -364,6 +392,9 @@ async function buildRoutine(job) {
         fs.copyFile(logName, newName, () => debug(`Log copied to ${newName}`));
     });
     const ops = config.shell ? {'shell': config.shell} : {};
+
+    // If environment variable COVERALLS_REPO_TOKEN is not null, set dynamic variables
+    if (process.env.COVERALLS_REPO_TOKEN) initCoveralls(job);
 
     const init = () => debug('Executing pipeline for job #%g', job.id);
     const routine = tasks.reduce(applyTask, Promise.resolve().then(init));
@@ -411,6 +442,8 @@ async function buildRoutine(job) {
                         clearTimeout(timer);
                     })
                     .on('close', (code, signal) => {
+                        // FIXME Sometime close is not called after a timeout, maybe because
+                        //  the IO streams are kept open by some process?
                         const callback = (code === 0) ? resolve : reject;
                         const proc = {
                             code: code,
@@ -419,6 +452,8 @@ async function buildRoutine(job) {
                             stderr: stderr,
                             process: child
                         };
+                        // Ensure there's an exitCode as the second kill timer checks for this
+                        if (child.exitCode === null) child.exitCode = -1;
                         callback(proc);
                     });
                 job.child = child;  // Assign the child process to the job
@@ -447,7 +482,7 @@ async function buildRoutine(job) {
                 message = `${errored.code} - Failed to spawn ${file}`;
             }
             // Check if the process was killed (we'll assume by the test timeout callback)
-        } else if (errored.process.killed || errored.signal === 'SIGTERM') {
+        } else if (errored.process.killed || ['SIGTERM', 'SIGKILL'].includes(errored.signal)) {
             message = `Tests stalled after ~${(config.timeout / 60000).toFixed(0)} min`;
         } else {  // Error raised by process; dig through stdout for reason
             debug('error from test function %s', file);
@@ -511,10 +546,10 @@ async function buildRoutine(job) {
  */
 function computeCoverage(job) {
     if (typeof job.data.coverage !== 'undefined' && job.data.coverage) {
-        console.log('Coverage already computed for job #' + job.id);
+        console.log('Coverage already computed for job #%g', job.id);
         return;
     }
-    console.log('Updating coverage for job #' + job.id);
+    console.log('Updating coverage for job #%g', job.id);
     const xmlPath = path.join(config.dataPath, 'reports', job.data.sha, 'CoverageResults.xml');
     const modules = listSubmodules(process.env.REPO_PATH);
     return Coverage(xmlPath, job.data.repo, job.data.sha, modules).then(obj => {
@@ -719,5 +754,5 @@ module.exports = {
     ensureArray, loadTestRecords, compareCoverage, computeCoverage, getBadgeData, log, shortID,
     openTunnel, APIError, queue, partial, startJobTimer, updateJobFromRecord, shortCircuit, isSHA,
     fullpath, strToBool, saveTestRecords, listSubmodules, getRepoPath, addParam, context2routine,
-    buildRoutine
+    buildRoutine, initCoveralls
 };

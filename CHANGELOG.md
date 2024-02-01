@@ -1,6 +1,17 @@
 # Changelog
 
-## [Latest](https://github.com/cortex-lab/matlab-ci/commits/master) [3.1.0]
+## [Latest](https://github.com/cortex-lab/matlab-ci/commits/master) [3.2.0]
+
+## Modified
+
+ - if SIGTERM fails to end process(es) in under a minute, SIGKILL is sent
+
+## Added
+
+ - git workflow
+ - set coveralls env vars
+
+## [3.1.0]
 
 ## Modified
 

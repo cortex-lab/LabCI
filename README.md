@@ -1,6 +1,6 @@
 # LabCI
-[![Build Status](https://travis-ci.com/cortex-lab/LabCI.svg?branch=master)](https://travis-ci.com/cortex-lab/matlab-ci)
-[![Coverage](https://img.shields.io/badge/coverage-91.91-brightgreen)](https://img.shields.io/badge/coverage-72.35-yellowgreen)
+![CI workflow](https://github.com/cortex-lab/LabCI/actions/workflows/tests.yml/badge.svg?branch=main)
+[![Coverage](https://img.shields.io/badge/coverage-91.69-brightgreen)](https://img.shields.io/badge/coverage-72.35-yellowgreen)
 
 A small set of modules written in Node.js for running automated tests of MATLAB and Python code in response to GitHub events.  Also submits code coverage to the Coveralls API.
 
@@ -110,6 +110,10 @@ Your test script must do the following:
 1. Accept a commit ID as an input arg
 2. Save the results into the JSON cache file without duplication
 3. For code coverage the script must either save the coverage directly, or export a Cobertura formatted XML file.
+
+## Coveralls
+Coverage information can be sent to coveralls.io using the [node-coveralls](https://github.com/nickmerwin/node-coveralls) package.
+Adding `COVERALLS_REPO_TOKEN` to the .env file will cause the CI to set other dynamic env variables before running a pipeline.
 
 ## Built With
 
